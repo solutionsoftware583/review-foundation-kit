@@ -742,7 +742,7 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
     setSaving(true); setError("");
     try { await createReview(form); close(); } catch (caught) { console.error(caught); setError("Could not save this review. Nothing was created — please try again."); } finally { setSaving(false); }
   };
-  return <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-overlay/60 p-4 backdrop-blur-sm" onMouseDown={close}><form onSubmit={(event) => void submit(event)} onMouseDown={(event) => event.stopPropagation()} className="glass my-auto w-full max-w-2xl rounded-lg p-5 shadow-modal">
+  return <Overlay title="Add a review" description="Capture a customer conversation in the shared inbox." onClose={close} className="left-1/2 top-1/2 max-h-[92vh] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto"><form onSubmit={(event) => void submit(event)} className="glass w-full rounded-lg p-5 shadow-modal">
     <div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold">Add a review</h2><p className="mt-1 text-xs text-muted-foreground">Capture a customer conversation in the shared inbox.</p></div><IconButton type="button" label="Close review form" onClick={close}><X/></IconButton></div>
     <div className="mt-5 grid gap-4 sm:grid-cols-2">
       <Field label="Business"><Input value={workspaceName} readOnly className="bg-muted/60 font-normal"/></Field>
