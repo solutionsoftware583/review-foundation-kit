@@ -35,8 +35,30 @@ export type Member = {
   created_at: string;
 };
 
+export type Workspace = {
+  id: string;
+  slug: string;
+  name: string;
+  website: string | null;
+  industry: string | null;
+  plan: string;
+};
+
+export type Business = {
+  id: string;
+  name: string;
+  location_label: string;
+  city: string | null;
+  country: string | null;
+  category: string | null;
+  is_active: boolean;
+};
+
 type SessionValue = {
   loading: boolean;
+  workspace: Workspace | null;
+  workspaceName: string;
+  businesses: Business[];
   user: User | null;
   member: Member | null;
   role: Role;
@@ -54,6 +76,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [member, setMember] = useState<Member | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
 
   const load = useCallback(async () => {
     const { data: userData } = await supabase.auth.getUser();
@@ -61,6 +85,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(currentUser);
     if (!currentUser) {
       setMember(null);
+      setWorkspace(null);
+      setBusinesses([]);
       setLoading(false);
       return;
     }
@@ -77,6 +103,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .maybeSingle();
     if (result.error) console.error(result.error);
     setMember((result.data as Member | null) ?? null);
+
+    const [workspaceResult, businessResult] = await Promise.all([
+      supabase
+        .from("reviewvala_workspaces")
+        .select("id, slug, name, website, industry, plan")
+        .eq("slug", WORKSPACE_SLUG)
+        .maybeSingle(),
+      supabase
+        .from("reviewvala_businesses")
+        .select("id, name, location_label, city, country, category, is_active")
+        .eq("workspace_slug", WORKSPACE_SLUG)
+        .order("location_label"),
+    ]);
+    setWorkspace((workspaceResult.data as Workspace | null) ?? null);
+    setBusinesses((businessResult.data as Business[] | null) ?? []);
     setLoading(false);
   }, []);
 
@@ -88,6 +129,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setMember(null);
+    setWorkspace(null);
+    setBusinesses([]);
   }, []);
 
   const value = useMemo<SessionValue>(() => {
@@ -96,6 +139,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const actorName = member?.full_name?.trim() || member?.email || user?.email || "Member";
     return {
       loading,
+      workspace,
+      workspaceName: workspace?.name ?? "Workspace",
+      businesses,
       user,
       member,
       role,
@@ -104,7 +150,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refreshMember: load,
       signOut,
     };
-  }, [loading, member, user, load, signOut]);
+  }, [loading, member, user, workspace, businesses, load, signOut]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
