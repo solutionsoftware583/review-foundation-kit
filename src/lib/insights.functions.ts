@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 
 const WORKSPACE = "northstar-group";
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "openai/gpt-6-astra";
 
 const inputSchema = z.object({
   text: z.string().trim().min(20, "Add at least 20 characters of review text.").max(6000),
