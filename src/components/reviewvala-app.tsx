@@ -1205,8 +1205,42 @@ function ReviewsPage({ reviews, responses, events, notes, templates, complianceR
 
 /* --------------------------------------------------------- response centre --- */
 
-function ResponseCenter({ reviews, responses, events, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
-  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; role: Role; can: (permission: Permission) => boolean;
+function hoursBetween(from?: string | null, to?: string | null) {
+  if (!from || !to) return null;
+  return (new Date(to).getTime() - new Date(from).getTime()) / 3_600_000;
+}
+
+function average(values: (number | null)[]) {
+  const usable = values.filter((value): value is number => value !== null && Number.isFinite(value) && value >= 0);
+  if (!usable.length) return null;
+  return usable.reduce((total, value) => total + value, 0) / usable.length;
+}
+
+function responseMetrics(reviews: Review[], responses: ResponseRecord[], events: ResponseEvent[]) {
+  const byReview = new Map(reviews.map((review) => [review.id, review]));
+  const firstDraft = average(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.created_at)));
+  const approval = average(responses.map((response) => hoursBetween(response.submitted_at, response.approved_at)));
+  const publishing = average(responses.map((response) => hoursBetween(response.approved_at, response.published_at)));
+  const endToEnd = average(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.published_at)));
+  const reworked = new Set(events.filter((event) => event.to_status === "Changes requested" || event.to_status === "Rejected").map((event) => event.response_id));
+  const decided = responses.filter((response) => response.approved_at || reworked.has(response.id));
+  const firstPass = decided.length ? Math.round((decided.filter((response) => !reworked.has(response.id)).length / decided.length) * 100) : null;
+  const published = responses.filter((response) => response.response_status === "Published").length;
+  const failed = responses.filter((response) => response.publish_state === "Failed").length;
+  return { firstDraft, approval, publishing, endToEnd, firstPass, published, failed, total: responses.length };
+}
+
+function formatHours(value: number | null) {
+  if (value === null) return "—";
+  if (value < 1) return `${Math.max(1, Math.round(value * 60))} min`;
+  if (value < 48) return `${value.toFixed(1)} h`;
+  return `${(value / 24).toFixed(1)} days`;
+}
+
+function ResponseCenter({ reviews, responses, events, policies, targets, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
+  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[];
+  policies: ApprovalPolicy[]; targets: PublishTarget[];
+  role: Role; can: (permission: Permission) => boolean;
   approveResponse: (id: string) => Promise<ResponseRecord>;
   rejectResponse: (id: string, note: string) => Promise<ResponseRecord>;
   requestChanges: (id: string, note: string) => Promise<ResponseRecord>;
@@ -1224,6 +1258,7 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
   const covered = new Set(responses.map((response) => response.review_id));
   const coverage = reviews.length ? Math.round((reviews.filter((review) => covered.has(review.id)).length / reviews.length) * 100) : 0;
   const statusBreakdown = ["Draft", "Pending approval", "Changes requested", "Rejected", "Approved", "Published"].map((label) => ({ label, count: responses.filter((response) => response.response_status === label).length }));
+  const metrics = responseMetrics(reviews, responses, events);
 
   const runAction = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true); setMessage("");
@@ -1254,8 +1289,11 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
               <Button variant="outline" size="sm" disabled={busy} onClick={() => { setNoteFor({ id: response.id, mode: "Rejected" }); setNote(""); }}>Reject</Button>
               <Button size="sm" disabled={busy} onClick={() => void runAction(() => approveResponse(response.id), "Response approved. It is ready to publish internally.")}><Check/>Approve</Button>
             </>}
-            {can("publishResponse") && status === "Approved" && <Button size="sm" disabled={busy} onClick={() => void runAction(() => publishResponse(response.id), "Published internally. The review is marked replied.")}><Send/>Publish internally</Button>}
+            {can("publishResponse") && status === "Approved" && <Button size="sm" disabled={busy} onClick={() => void runAction(() => publishResponse(response.id), "Published internally. The review is marked replied.")}><Send/>{response.publish_state === "Failed" ? `Retry publish (attempt ${(response.publish_attempts ?? 0) + 1})` : "Publish internally"}</Button>}
           </div>
+          {response.publish_state === "Failed" && <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[11px] font-semibold text-destructive">Publishing failed after {response.publish_attempts} attempt{response.publish_attempts === 1 ? "" : "s"}: {response.last_publish_error ?? "unknown reason"}. Nothing was posted — retry when ready.</p>}
+          <p className="mt-3 text-[11px] text-muted-foreground">{(() => { const policy = matchPolicy(policies, review); const target = targetFor(targets, review.source); return `${policy ? `${policy.name} · approved by ${policy.required_role}${policy.require_second_approval ? " · second approval needed" : ""}` : "Manager or Admin approval"}${target ? ` · ${review.source}: ${target.mode.toLowerCase()}, ${target.character_limit} character limit` : ""} · version ${response.version}`; })()}</p>
+          {openHistory === response.id && <ResponseVersions responseId={response.id} refreshKey={response.version}/>}
           {noteFor?.id === response.id && <div className="mt-3 rounded-md border bg-surface p-3"><Field label={noteFor.mode === "Rejected" ? "Why is this rejected?" : "What should change?"}><textarea value={note} onChange={(event) => setNote(event.target.value)} className="inset-3d min-h-20 resize-none rounded-md border bg-background p-2 text-xs font-normal leading-5 outline-none focus:ring-2 focus:ring-ring"/></Field><div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setNoteFor(null)}>Cancel</Button><Button size="sm" disabled={busy || !note.trim()} onClick={() => void runAction(async () => { const action = noteFor.mode === "Rejected" ? rejectResponse : requestChanges; await action(response.id, note.trim()); setNoteFor(null); }, noteFor.mode === "Rejected" ? "Response rejected and returned to the author." : "Changes requested from the author.")}>Send decision</Button></div></div>}
           {openHistory === response.id && <div className="mt-4 border-t pt-4"><ResponseTimeline events={history}/></div>}
         </div>;
@@ -1264,6 +1302,17 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
     </section>
 
     <aside className="space-y-4">
+      <section className="card-3d rounded-lg bg-card p-5">
+        <h2 className="font-display font-bold">Response performance</h2>
+        <p className="mt-1 text-[11px] text-muted-foreground">Measured from the workflow records in this workspace.</p>
+        <dl className="mt-4 grid grid-cols-2 gap-3">
+          {([["Time to first draft", formatHours(metrics.firstDraft)], ["Approval turnaround", formatHours(metrics.approval)], ["Approved to published", formatHours(metrics.publishing)], ["Review to published", formatHours(metrics.endToEnd)], ["Approved first time", metrics.firstPass === null ? "—" : `${metrics.firstPass}%`], ["Published", `${metrics.published} / ${metrics.total}`]] as const).map(([label, value]) => <div key={label} className="inset-3d rounded-md bg-surface p-3">
+            <dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt>
+            <dd className="mt-1 font-display text-base font-bold">{value}</dd>
+          </div>)}
+        </dl>
+        {metrics.failed > 0 && <p className="mt-3 text-[11px] font-semibold text-destructive">{metrics.failed} response{metrics.failed === 1 ? "" : "s"} failed to publish and can be retried.</p>}
+      </section>
       <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Response coverage</h2><div className="mt-5 flex items-end gap-3"><span className="font-display text-4xl font-bold">{coverage}%</span><span className="pb-1 text-xs text-muted-foreground">of reviews have a response</span></div><div className="inset-3d mt-4 h-2 rounded-full bg-muted"><div className={cn("h-full rounded-full", coverage >= 80 ? "bg-success" : coverage >= 50 ? "bg-warning" : "bg-destructive")} style={{ width: `${coverage}%` }}/></div><ul className="mt-5 space-y-3 text-xs">{statusBreakdown.map((row) => <li key={row.label} className="flex justify-between"><span className="text-muted-foreground">{row.label}</span><strong>{row.count}</strong></li>)}</ul></section>
       <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Published internally</h2><p className="mt-1 text-[11px] text-muted-foreground">Published marks the response approved inside ReviewVala. Nothing is sent to an external platform.</p>{published.length ? <div className="mt-3 space-y-2">{published.map((response) => { const review = reviews.find((item) => item.id === response.review_id); return <div key={response.id} className="rounded-md border p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong className="truncate">{review ? review.name : "Review removed"}</strong><StatusPill tone="good">Published</StatusPill></div><p className="mt-2 line-clamp-2 leading-5 text-muted-foreground">{response.response_text}</p></div>; })}</div> : <p className="mt-3 text-xs text-muted-foreground">Nothing published yet. Approve a draft, then publish it internally.</p>}</section>
     </aside>
@@ -1747,13 +1796,13 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
     : page === "Reviews"
       ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
-        ? <ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
+        ? <div className="grid gap-5"><ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} policies={data.policies} targets={data.targets} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/><TemplateLibraryPanel role={role}/></div>
         : page === "Improve"
           ? <ImprovePage reviews={visible.reviews} role={role} can={can}/>
           : page === "Team"
             ? <div className="grid gap-5"><MembersPanel role={role} currentUserId={member?.user_id ?? ""} actorName={actorName}/><InvitesPanel role={role}/><AuditLogPanel/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
             : page === "Settings"
-              ? <div className="grid gap-5"><ProfilePanel/><WorkspaceSettingsPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
+              ? <div className="grid gap-5"><ProfilePanel/><WorkspaceSettingsPanel role={role}/><CompliancePanel role={role}/><ApprovalPoliciesPanel role={role}/><PublishTargetsPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
               : page === "Locations"
                 ? <div className="grid gap-5"><BusinessesPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
                 : page === "Alerts"
