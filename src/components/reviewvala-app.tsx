@@ -35,6 +35,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1283,7 +1284,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openReview = (review: Review) => { setFocusId(review.id); setPage("Reviews"); };
+  const openReview = (review: Review) => { void navigate({ to: "/reviews", search: { review: review.id } }); };
 
   const content = page === "Overview"
     ? <Overview setPage={setPage} reviews={data.reviews} responses={data.responses} derived={derived}/>
