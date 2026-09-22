@@ -41,6 +41,50 @@ export type Database = {
         }
         Relationships: []
       }
+      reviewvala_response_events: {
+        Row: {
+          action: string
+          actor_name: string
+          actor_role: string
+          created_at: string
+          from_status: string | null
+          id: string
+          note: string | null
+          response_id: string
+          to_status: string
+        }
+        Insert: {
+          action: string
+          actor_name?: string
+          actor_role?: string
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          note?: string | null
+          response_id: string
+          to_status: string
+        }
+        Update: {
+          action?: string
+          actor_name?: string
+          actor_role?: string
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          note?: string | null
+          response_id?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_response_events_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_responses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reviewvala_responses: {
         Row: {
           author_name: string
@@ -79,12 +123,47 @@ export type Database = {
           },
         ]
       }
+      reviewvala_review_notes: {
+        Row: {
+          author_name: string
+          created_at: string
+          id: string
+          note_text: string
+          review_id: string
+        }
+        Insert: {
+          author_name?: string
+          created_at?: string
+          id?: string
+          note_text: string
+          review_id: string
+        }
+        Update: {
+          author_name?: string
+          created_at?: string
+          id?: string
+          note_text?: string
+          review_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_review_notes_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reviewvala_reviews: {
         Row: {
+          assignee: string | null
           created_at: string
           id: string
           location: string
+          priority: string
           rating: number
+          review_date: string
           review_text: string
           reviewer_initials: string
           reviewer_name: string
@@ -96,10 +175,13 @@ export type Database = {
           workspace_slug: string
         }
         Insert: {
+          assignee?: string | null
           created_at?: string
           id?: string
           location: string
+          priority?: string
           rating: number
+          review_date?: string
           review_text: string
           reviewer_initials: string
           reviewer_name: string
@@ -111,10 +193,13 @@ export type Database = {
           workspace_slug?: string
         }
         Update: {
+          assignee?: string | null
           created_at?: string
           id?: string
           location?: string
+          priority?: string
           rating?: number
+          review_date?: string
           review_text?: string
           reviewer_initials?: string
           reviewer_name?: string

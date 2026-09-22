@@ -84,6 +84,9 @@
   --shadow-card: var(--shadow-card);
   --shadow-brand: var(--shadow-brand);
   --shadow-modal: var(--shadow-modal);
+  --shadow-3d: var(--shadow-3d);
+  --shadow-3d-hover: var(--shadow-3d-hover);
+  --shadow-inset-3d: var(--shadow-inset-3d);
 }
 
 :root {
@@ -120,17 +123,17 @@
   --sidebar-accent-foreground: oklch(0.97 0.006 150);
   --sidebar-border: oklch(0.29 0.02 174);
   --sidebar-ring: oklch(0.704 0.04 256.788);
-  --brand: oklch(0.52 0.13 166);
-  --brand-foreground: oklch(0.99 0.004 95);
-  --brand-soft: oklch(0.94 0.035 165);
-  --brand-bright: oklch(0.74 0.13 165);
-  --surface: oklch(0.97 0.006 150);
-  --success: oklch(0.49 0.12 154);
-  --success-soft: oklch(0.94 0.04 151);
-  --warning: oklch(0.75 0.15 75);
-  --warning-strong: oklch(0.55 0.13 65);
-  --warning-soft: oklch(0.95 0.045 78);
-  --destructive-soft: oklch(0.95 0.04 25);
+  --brand: oklch(0.505 0.152 166);
+  --brand-foreground: oklch(0.995 0.004 95);
+  --brand-soft: oklch(0.945 0.055 165);
+  --brand-bright: oklch(0.775 0.155 164);
+  --surface: oklch(0.975 0.011 158);
+  --success: oklch(0.505 0.145 152);
+  --success-soft: oklch(0.945 0.055 151);
+  --warning: oklch(0.775 0.165 74);
+  --warning-strong: oklch(0.545 0.145 62);
+  --warning-soft: oklch(0.955 0.06 78);
+  --destructive-soft: oklch(0.952 0.05 24);
   --ink: oklch(0.21 0.035 180);
   --ink-foreground: oklch(0.98 0.005 150);
   --ink-muted: oklch(0.76 0.025 170);
@@ -140,9 +143,25 @@
   --sidebar-muted: oklch(0.69 0.02 170);
   --sidebar-elevated: oklch(0.22 0.028 174);
   --sidebar-hover: oklch(0.25 0.028 174);
-  --shadow-card: 0 1px 2px oklch(0.16 0.02 174 / 4%), 0 8px 24px oklch(0.16 0.02 174 / 3%);
-  --shadow-brand: 0 8px 18px oklch(0.49 0.13 166 / 25%);
-  --shadow-modal: 0 24px 70px oklch(0.12 0.02 175 / 24%);
+  --shadow-card: 0 1px 2px oklch(0.16 0.02 174 / 6%), 0 10px 26px oklch(0.16 0.02 174 / 5%);
+  --shadow-brand: 0 10px 22px oklch(0.49 0.15 166 / 30%);
+  --shadow-modal: 0 28px 80px oklch(0.12 0.02 175 / 28%);
+  --shadow-3d:
+    0 1px 0 oklch(1 0 0 / 80%) inset,
+    0 -1px 0 oklch(0.16 0.02 174 / 6%) inset,
+    0 1px 2px oklch(0.16 0.02 174 / 7%),
+    0 10px 20px -8px oklch(0.16 0.02 174 / 14%),
+    0 26px 46px -22px oklch(0.16 0.02 174 / 20%);
+  --shadow-3d-hover:
+    0 1px 0 oklch(1 0 0 / 85%) inset,
+    0 -1px 0 oklch(0.16 0.02 174 / 8%) inset,
+    0 3px 6px oklch(0.16 0.02 174 / 9%),
+    0 18px 30px -10px oklch(0.16 0.02 174 / 18%),
+    0 40px 60px -26px oklch(0.16 0.02 174 / 24%);
+  --shadow-inset-3d:
+    0 1px 0 oklch(1 0 0 / 55%) inset,
+    0 -2px 4px oklch(0.16 0.02 174 / 14%) inset,
+    0 6px 12px -6px oklch(0.16 0.02 174 / 35%);
 }
 
 .dark {
@@ -185,15 +204,87 @@
     border-color: var(--color-border);
   }
 
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     background-color: var(--color-background);
+    background-image:
+      radial-gradient(900px 500px at 12% -10%, oklch(0.505 0.152 166 / 7%), transparent 70%),
+      radial-gradient(800px 460px at 100% 0%, oklch(0.775 0.165 74 / 6%), transparent 70%);
+    background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
-    letter-spacing: 0;
+    font-feature-settings: "ss01", "cv05", "tnum" 0;
+    letter-spacing: -0.005em;
     margin: 0;
   }
 
+  h1, h2, h3, .font-display { letter-spacing: -0.02em; }
+
   button, input, textarea, select { font: inherit; }
+}
+
+/* Raised, tactile card surface used across every workspace screen. */
+@utility card-3d {
+  position: relative;
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  box-shadow: var(--shadow-3d);
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 220ms ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-3d-hover);
+  }
+}
+
+/* Frosted outline used for overlays, popovers and elevated panels. */
+@utility glass {
+  background: color-mix(in oklab, var(--color-card) 74%, transparent);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid color-mix(in oklab, var(--color-brand) 16%, oklch(1 0 0 / 55%));
+  box-shadow: var(--shadow-3d);
+}
+
+/* Thin luminous outline, layered over cards and pills. */
+@utility outline-glass {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    border: 1px solid oklch(1 0 0 / 60%);
+    mask-image: linear-gradient(to bottom, oklch(0 0 0) 0%, transparent 60%);
+  }
+}
+
+/* Sculpted icon chip: dimensional highlight, body gradient and drop shadow. */
+@utility icon-3d {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background-image: linear-gradient(160deg, oklch(1 0 0 / 55%), transparent 55%);
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 70%) inset,
+    0 -2px 3px oklch(0.16 0.02 174 / 12%) inset,
+    0 6px 12px -6px oklch(0.16 0.02 174 / 45%);
+
+  & svg {
+    filter: drop-shadow(0 1px 0 oklch(1 0 0 / 65%)) drop-shadow(0 2px 3px oklch(0.16 0.02 174 / 30%));
+  }
+}
+
+/* Pressed / recessed surface for wells and inputs. */
+@utility inset-3d {
+  box-shadow: var(--shadow-inset-3d);
 }
 
 @media (prefers-reduced-motion: reduce) {

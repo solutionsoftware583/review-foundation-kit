@@ -3,7 +3,6 @@ import {
   Activity,
   AlertCircle,
   Bell,
-  Building2,
   ChartNoAxesCombined,
   Check,
   ChevronDown,
@@ -12,13 +11,17 @@ import {
   FileBarChart,
   Filter,
   Gauge,
+  History,
   Inbox,
   LayoutDashboard,
+  Lock,
   MapPin,
   Menu,
   MessageSquareReply,
   MoreHorizontal,
+  NotebookPen,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Settings,
@@ -38,8 +41,50 @@ import { cn } from "@/lib/utils";
 
 type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
 type PreviewState = "Live data" | "Loading" | "Empty" | "Error";
-
 type BadgeKey = "needsReply" | "pendingResponses" | "alerts";
+
+const WORKSPACE = "northstar-group";
+const ACTOR_NAME = "Riya Sharma";
+const TEAM_MEMBERS = ["Riya Sharma", "Arjun Mehta", "Chloe Dubois", "Marcus Hale"];
+const REVIEW_STATUSES = ["Needs reply", "Assigned", "Escalated", "Replied"];
+const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
+const SENTIMENTS = ["Positive", "Mixed", "Negative"];
+const SOURCES = ["Google", "Trustpilot", "Facebook", "Tripadvisor", "Internal"];
+
+/* ---------------------------------------------------------------- roles --- */
+
+type Role = "Admin" | "Manager" | "Responder" | "Viewer";
+type Permission = "manageReview" | "draftResponse" | "approveResponse" | "publishResponse" | "addNote" | "createReview";
+
+const ROLES: Role[] = ["Admin", "Manager", "Responder", "Viewer"];
+const ROLE_SUMMARY: Record<Role, string> = {
+  Admin: "Full access to every workspace action.",
+  Manager: "Assign, approve, publish and manage locations.",
+  Responder: "Draft responses and submit them for approval.",
+  Viewer: "Read-only access across the workspace.",
+};
+const PERMISSIONS: Record<Role, Permission[]> = {
+  Admin: ["manageReview", "draftResponse", "approveResponse", "publishResponse", "addNote", "createReview"],
+  Manager: ["manageReview", "draftResponse", "approveResponse", "publishResponse", "addNote", "createReview"],
+  Responder: ["draftResponse", "addNote", "createReview"],
+  Viewer: [],
+};
+
+function useRole() {
+  const [role, setRole] = useState<Role>("Admin");
+  useEffect(() => {
+    const stored = window.localStorage.getItem("reviewvala-role");
+    if (stored && (ROLES as string[]).includes(stored)) setRole(stored as Role);
+  }, []);
+  const change = useCallback((next: Role) => {
+    setRole(next);
+    window.localStorage.setItem("reviewvala-role", next);
+  }, []);
+  const can = useCallback((permission: Permission) => PERMISSIONS[role].includes(permission), [role]);
+  return { role, setRole: change, can };
+}
+
+/* ------------------------------------------------------------ navigation --- */
 
 const navGroups: { label: string; items: { name: PageKey; icon: typeof Gauge; badge?: BadgeKey }[] }[] = [
   { label: "Workspace", items: [
@@ -55,6 +100,8 @@ const navGroups: { label: string; items: { name: PageKey; icon: typeof Gauge; ba
   ]},
 ];
 
+/* ------------------------------------------------------------------ data --- */
+
 type Review = {
   id: string;
   initials: string;
@@ -66,6 +113,10 @@ type Review = {
   status: string;
   sentiment: string;
   text: string;
+  reviewDate: string;
+  priority: string;
+  assignee: string | null;
+  createdAt: string;
 };
 
 type ResponseRecord = {
@@ -74,111 +125,193 @@ type ResponseRecord = {
   response_text: string;
   response_status: string;
   author_name: string;
+  updated_at: string;
 };
 
-type RatingSnapshot = {
+type ResponseEvent = {
   id: string;
-  channel: string;
-  rating: number;
-  period_label: string;
+  response_id: string;
+  action: string;
+  actor_name: string;
+  actor_role: string;
+  from_status: string | null;
+  to_status: string;
+  note: string | null;
+  created_at: string;
 };
 
-// All review data is loaded from the database; nothing is hardcoded in the UI.
+type ReviewNote = { id: string; review_id: string; note_text: string; author_name: string; created_at: string };
+type RatingSnapshot = { id: string; channel: string; rating: number; period_label: string };
 
-function mapReview(row: {
-  id: string;
-  reviewer_initials: string;
-  reviewer_name: string;
-  source: string;
-  location: string;
-  rating: number;
-  time_label: string;
-  status: string;
-  sentiment: string;
-  review_text: string;
-}): Review {
-  return { id: row.id, initials: row.reviewer_initials, name: row.reviewer_name, source: row.source, location: row.location, rating: row.rating, time: row.time_label, status: row.status, sentiment: row.sentiment, text: row.review_text };
+// All workspace data is loaded from the connected database; nothing is hardcoded in the UI.
+
+const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at";
+const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at";
+
+type ReviewRow = {
+  id: string; reviewer_initials: string; reviewer_name: string; source: string; location: string; rating: number;
+  time_label: string; status: string; sentiment: string; review_text: string; review_date: string; priority: string;
+  assignee: string | null; created_at: string;
+};
+
+function mapReview(row: ReviewRow): Review {
+  return {
+    id: row.id, initials: row.reviewer_initials, name: row.reviewer_name, source: row.source, location: row.location,
+    rating: row.rating, time: row.time_label, status: row.status, sentiment: row.sentiment, text: row.review_text,
+    reviewDate: row.review_date, priority: row.priority ?? "Normal", assignee: row.assignee, createdAt: row.created_at,
+  };
 }
 
-function useWorkspaceData() {
+function formatDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatMoment(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function initialsOf(name: string) {
+  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "RV";
+}
+
+function useWorkspaceData(role: Role) {
   const [workspaceReviews, setWorkspaceReviews] = useState<Review[]>([]);
   const [responses, setResponses] = useState<ResponseRecord[]>([]);
+  const [events, setEvents] = useState<ResponseEvent[]>([]);
+  const [notes, setNotes] = useState<ReviewNote[]>([]);
   const [snapshots, setSnapshots] = useState<RatingSnapshot[]>([]);
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const refresh = useCallback(async () => {
     setDataStatus("loading");
-    const [reviewResult, responseResult, snapshotResult] = await Promise.all([
-      supabase.from("reviewvala_reviews").select("id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text").eq("workspace_slug", "northstar-group").order("created_at", { ascending: false }),
-      supabase.from("reviewvala_responses").select("id, review_id, response_text, response_status, author_name").order("created_at", { ascending: false }),
-      supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", "northstar-group").order("created_at", { ascending: true }),
-    ]);
+    try {
+      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult] = await Promise.all([
+        supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
+        supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
+        supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
+        supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
+        supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+      ]);
 
-    const firstError = reviewResult.error ?? responseResult.error ?? snapshotResult.error;
-    if (firstError) {
-      console.error(firstError);
+      const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
+      if (firstError) {
+        console.error(firstError);
+        setDataStatus("error");
+        return;
+      }
+
+      setWorkspaceReviews((reviewResult.data ?? []).map(mapReview));
+      setResponses(responseResult.data ?? []);
+      setEvents(eventResult.data ?? []);
+      setNotes(noteResult.data ?? []);
+      setSnapshots(snapshotResult.data ?? []);
+      setDataStatus("ready");
+    } catch (caught) {
+      console.error(caught);
       setDataStatus("error");
-      return;
     }
-
-    setWorkspaceReviews((reviewResult.data ?? []).map(mapReview));
-    setResponses(responseResult.data ?? []);
-    setSnapshots(snapshotResult.data ?? []);
-    setDataStatus("ready");
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const saveResponse = useCallback(async (reviewId: string, responseText: string) => {
-    const existing = responses.find((response) => response.review_id === reviewId);
-    const responseResult = existing
-      ? await supabase.from("reviewvala_responses").update({ response_text: responseText, response_status: "Draft" }).eq("id", existing.id).select("id, review_id, response_text, response_status, author_name").single()
-      : await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft" }).select("id, review_id, response_text, response_status, author_name").single();
-    if (responseResult.error) throw responseResult.error;
-    setResponses((current) => [responseResult.data, ...current.filter((response) => response.id !== responseResult.data.id)]);
-  }, [responses]);
-
-  const approveResponse = useCallback(async (responseId: string) => {
-    const result = await supabase.from("reviewvala_responses").update({ response_status: "Approved" }).eq("id", responseId).select("id, review_id, response_text, response_status, author_name").single();
+  const logEvent = useCallback(async (responseId: string, action: string, fromStatus: string | null, toStatus: string, note?: string) => {
+    const result = await supabase.from("reviewvala_response_events").insert({
+      response_id: responseId, action, actor_name: ACTOR_NAME, actor_role: role, from_status: fromStatus, to_status: toStatus, note: note ?? null,
+    }).select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").single();
     if (result.error) throw result.error;
-    setResponses((current) => current.map((response) => response.id === responseId ? result.data : response));
+    setEvents((current) => [...current, result.data]);
+  }, [role]);
+
+  const applyResponse = useCallback((record: ResponseRecord) => {
+    setResponses((current) => [record, ...current.filter((item) => item.id !== record.id)]);
   }, []);
 
-  const publishResponse = useCallback(async (responseId: string) => {
-    const response = responses.find((item) => item.id === responseId);
-    if (!response || response.response_status !== "Approved") throw new Error("Only approved responses can be published.");
-    const responseResult = await supabase.from("reviewvala_responses").update({ response_status: "Published" }).eq("id", responseId).select("id, review_id, response_text, response_status, author_name").single();
-    if (responseResult.error) throw responseResult.error;
-    const reviewResult = await supabase.from("reviewvala_reviews").update({ status: "Replied" }).eq("id", response.review_id).select("id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text").single();
-    if (reviewResult.error) throw reviewResult.error;
-    setResponses((current) => current.map((item) => item.id === responseId ? responseResult.data : item));
-    setWorkspaceReviews((current) => current.map((review) => review.id === response.review_id ? mapReview(reviewResult.data) : review));
-  }, [responses]);
+  const saveDraft = useCallback(async (reviewId: string, responseText: string) => {
+    const existing = responses.find((response) => response.review_id === reviewId);
+    if (existing) {
+      const result = await supabase.from("reviewvala_responses").update({ response_text: responseText, response_status: "Draft" }).eq("id", existing.id).select(RESPONSE_COLUMNS).single();
+      if (result.error) throw result.error;
+      applyResponse(result.data);
+      await logEvent(existing.id, "Draft saved", existing.response_status, "Draft");
+      return result.data;
+    }
+    const result = await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft", author_name: ACTOR_NAME }).select(RESPONSE_COLUMNS).single();
+    if (result.error) throw result.error;
+    applyResponse(result.data);
+    await logEvent(result.data.id, "Response created", null, "Draft");
+    return result.data;
+  }, [applyResponse, logEvent, responses]);
 
-  const createReview = useCallback(async (input: { name: string; source: string; location: string; rating: number; text: string }) => {
-    const nameParts = input.name.trim().split(/\s+/).filter(Boolean);
-    const initials = nameParts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "RV";
-    const sentiment = input.rating >= 4 ? "Positive" : input.rating === 3 ? "Mixed" : "Negative";
+  const moveResponse = useCallback(async (responseId: string, toStatus: string, action: string, note?: string) => {
+    const existing = responses.find((response) => response.id === responseId);
+    if (!existing) throw new Error("That response no longer exists.");
+    const result = await supabase.from("reviewvala_responses").update({ response_status: toStatus }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+    if (result.error) throw result.error;
+    applyResponse(result.data);
+    await logEvent(responseId, action, existing.response_status, toStatus, note);
+    return result.data;
+  }, [applyResponse, logEvent, responses]);
+
+  const submitForApproval = useCallback((responseId: string) => moveResponse(responseId, "Pending approval", "Submitted for approval"), [moveResponse]);
+  const approveResponse = useCallback((responseId: string) => moveResponse(responseId, "Approved", "Approved"), [moveResponse]);
+  const rejectResponse = useCallback((responseId: string, note: string) => moveResponse(responseId, "Rejected", "Rejected", note), [moveResponse]);
+  const requestChanges = useCallback((responseId: string, note: string) => moveResponse(responseId, "Changes requested", "Changes requested", note), [moveResponse]);
+
+  const publishResponse = useCallback(async (responseId: string) => {
+    const existing = responses.find((item) => item.id === responseId);
+    if (!existing) throw new Error("That response no longer exists.");
+    if (existing.response_status !== "Approved") throw new Error("Only approved responses can be published.");
+    await moveResponse(responseId, "Published", "Published internally");
+    const reviewResult = await supabase.from("reviewvala_reviews").update({ status: "Replied" }).eq("id", existing.review_id).select(REVIEW_COLUMNS).single();
+    if (reviewResult.error) throw reviewResult.error;
+    setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapReview(reviewResult.data) : review));
+  }, [moveResponse, responses]);
+
+  const updateReview = useCallback(async (reviewId: string, patch: { status?: string; priority?: string; assignee?: string | null }) => {
+    const result = await supabase.from("reviewvala_reviews").update(patch).eq("id", reviewId).select(REVIEW_COLUMNS).single();
+    if (result.error) throw result.error;
+    const mapped = mapReview(result.data);
+    setWorkspaceReviews((current) => current.map((review) => review.id === reviewId ? mapped : review));
+    return mapped;
+  }, []);
+
+  const addNote = useCallback(async (reviewId: string, noteText: string) => {
+    const result = await supabase.from("reviewvala_review_notes").insert({ review_id: reviewId, note_text: noteText, author_name: ACTOR_NAME }).select("id, review_id, note_text, author_name, created_at").single();
+    if (result.error) throw result.error;
+    setNotes((current) => [result.data, ...current]);
+    return result.data;
+  }, []);
+
+  const createReview = useCallback(async (input: CreateReviewInput) => {
     const result = await supabase.from("reviewvala_reviews").insert({
-      workspace_slug: "northstar-group",
-      reviewer_initials: initials,
+      workspace_slug: WORKSPACE,
+      reviewer_initials: initialsOf(input.name),
       reviewer_name: input.name.trim(),
       source: input.source,
       location: input.location.trim(),
       rating: input.rating,
-      time_label: "Just now",
-      status: "Needs reply",
-      sentiment,
+      time_label: formatDate(input.reviewDate),
+      status: input.assignee ? "Assigned" : "Needs reply",
+      sentiment: input.sentiment,
       review_text: input.text.trim(),
-    }).select("id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text").single();
+      review_date: input.reviewDate,
+      priority: input.priority,
+      assignee: input.assignee || null,
+    }).select(REVIEW_COLUMNS).single();
     if (result.error) throw result.error;
     const review = mapReview(result.data);
     setWorkspaceReviews((current) => [review, ...current]);
     return review;
   }, []);
 
-  return { reviews: workspaceReviews, responses, snapshots, dataStatus, refresh, saveResponse, approveResponse, publishResponse, createReview };
+  return { reviews: workspaceReviews, responses, events, notes, snapshots, dataStatus, refresh, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
 }
+
+/* -------------------------------------------------------------- derived --- */
 
 type Derived = ReturnType<typeof deriveWorkspace>;
 
@@ -193,7 +326,10 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
   const escalated = reviews.filter((review) => review.status === "Escalated").length;
   const replied = reviews.filter((review) => review.status === "Replied").length;
   const positive = reviews.filter((review) => review.sentiment === "Positive").length;
+  const unassigned = reviews.filter((review) => !review.assignee).length;
+  const urgent = reviews.filter((review) => review.priority === "Urgent").length;
   const pendingResponses = responses.filter((response) => response.response_status !== "Published").length;
+  const awaitingApproval = responses.filter((response) => response.response_status === "Pending approval").length;
   const overallRating = average(reviews.map((review) => review.rating));
   const responseRate = totalReviews ? Math.round((replied / totalReviews) * 100) : 0;
   const positiveShare = totalReviews ? Math.round((positive / totalReviews) * 100) : 0;
@@ -226,12 +362,14 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     return { source, count: scoped.length, score: average(scoped.map((review) => review.rating)) };
   }).sort((a, b) => b.count - a.count);
 
-  const authorNames: string[] = [];
-  for (const response of responses) if (!authorNames.includes(response.author_name)) authorNames.push(response.author_name);
-  const teammates = authorNames.map((name) => ({
+  const memberNames: string[] = [];
+  for (const response of responses) if (!memberNames.includes(response.author_name)) memberNames.push(response.author_name);
+  for (const review of reviews) if (review.assignee && !memberNames.includes(review.assignee)) memberNames.push(review.assignee);
+  const teammates = memberNames.map((name) => ({
     name,
     drafted: responses.filter((response) => response.author_name === name).length,
     published: responses.filter((response) => response.author_name === name && response.response_status === "Published").length,
+    assigned: reviews.filter((review) => review.assignee === name).length,
   }));
 
   const alerts = [
@@ -239,9 +377,10 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     ...reviews.filter((review) => review.rating <= 2 && review.status !== "Escalated").map((review) => ({ tone: "bad" as const, title: `${review.rating}-star review needs attention`, meta: `${review.name} · ${review.location}` })),
     ...reviews.filter((review) => review.status === "Needs reply" && review.rating >= 3).map((review) => ({ tone: "warn" as const, title: `Awaiting a reply to ${review.name}`, meta: `${review.source} · ${review.time}` })),
     ...responses.filter((response) => response.response_status === "Pending approval").map((response) => ({ tone: "brand" as const, title: `${response.author_name} requested response approval`, meta: "Response Center" })),
+    ...responses.filter((response) => response.response_status === "Changes requested").map((response) => ({ tone: "warn" as const, title: `Changes requested on a response by ${response.author_name}`, meta: "Response Center" })),
   ];
 
-  return { totalReviews, needsReply, escalated, replied, pendingResponses, overallRating, responseRate, positiveShare, periods, trend, channels, locations, sources, teammates, alerts };
+  return { totalReviews, needsReply, escalated, replied, unassigned, urgent, pendingResponses, awaitingApproval, overallRating, responseRate, positiveShare, periods, trend, channels, locations, sources, teammates, alerts };
 }
 
 const pageDescriptions: Record<PageKey, string> = {
@@ -257,41 +396,85 @@ const pageDescriptions: Record<PageKey, string> = {
   Settings: "Configure your workspace, channels, and response standards.",
 };
 
+/* ------------------------------------------------------------- primitives --- */
+
 function BrandMark({ compact = false }: { compact?: boolean }) {
-  return <div className="flex items-center gap-2.5"><div className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand text-brand-foreground shadow-brand"><span className="font-display text-sm font-bold">RV</span></div>{!compact && <div><div className="font-display text-[17px] font-bold leading-none text-sidebar-foreground">ReviewVala<span className="text-brand">™</span></div><div className="mt-1 text-[9px] font-medium text-sidebar-muted">Powered by Software Vala™</div></div>}</div>;
+  return <div className="flex items-center gap-2.5"><div className="icon-3d size-8 shrink-0 rounded-lg bg-brand text-brand-foreground shadow-brand"><span className="font-display text-sm font-bold">RV</span></div>{!compact && <div><div className="font-display text-[17px] font-bold leading-none text-sidebar-foreground">ReviewVala<span className="text-brand-bright">™</span></div><div className="mt-1 text-[9px] font-medium text-sidebar-muted">Powered by Software Vala™</div></div>}</div>;
 }
 
 function Stars({ value, small = false }: { value: number; small?: boolean }) {
-  return <div className="flex items-center gap-0.5" aria-label={`${value} out of 5 stars`}>{[1,2,3,4,5].map((star) => <Star key={star} className={cn(small ? "size-3" : "size-4", star <= value ? "fill-warning text-warning" : "fill-muted text-border")} />)}</div>;
+  return <div className="flex items-center gap-0.5" aria-label={`${value} out of 5 stars`}>{[1,2,3,4,5].map((star) => <Star key={star} className={cn(small ? "size-3" : "size-4", star <= value ? "fill-warning text-warning drop-shadow-[0_1px_1px_oklch(0.55_0.145_62/45%)]" : "fill-muted text-border")} />)}</div>;
 }
 
-function StatusPill({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "good" | "warn" | "bad" | "brand" }) {
-  const tones = { neutral: "bg-muted text-muted-foreground", good: "bg-success-soft text-success", warn: "bg-warning-soft text-warning-strong", bad: "bg-destructive-soft text-destructive", brand: "bg-brand-soft text-brand" };
-  return <span className={cn("inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold", tones[tone])}>{children}</span>;
+type Tone = "neutral" | "good" | "warn" | "bad" | "brand";
+
+function StatusPill({ children, tone = "neutral" }: { children: React.ReactNode; tone?: Tone }) {
+  const tones: Record<Tone, string> = {
+    neutral: "bg-muted text-muted-foreground",
+    good: "bg-success-soft text-success",
+    warn: "bg-warning-soft text-warning-strong",
+    bad: "bg-destructive-soft text-destructive",
+    brand: "bg-brand-soft text-brand",
+  };
+  return <span className={cn("outline-glass inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold shadow-xs", tones[tone])}>{children}</span>;
 }
 
-function IconButton({ label, children, onClick, className, type = "button" }: { label: string; children: React.ReactNode; onClick?: () => void; className?: string; type?: "button" | "submit" }) {
-  return <Tooltip><TooltipTrigger asChild><Button type={type} variant="ghost" size="icon" aria-label={label} onClick={onClick} className={className}>{children}</Button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>;
+function statusTone(status: string): Tone {
+  if (status === "Replied" || status === "Published" || status === "Approved") return "good";
+  if (status === "Escalated" || status === "Rejected") return "bad";
+  if (status === "Pending approval" || status === "Changes requested" || status === "Needs reply") return "warn";
+  return "brand";
 }
 
-function Sidebar({ page, setPage, open, close, derived }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived }) {
+function priorityTone(priority: string): Tone {
+  if (priority === "Urgent") return "bad";
+  if (priority === "High") return "warn";
+  if (priority === "Low") return "neutral";
+  return "brand";
+}
+
+function IconButton({ label, children, onClick, className, type = "button", disabled }: { label: string; children: React.ReactNode; onClick?: () => void; className?: string; type?: "button" | "submit"; disabled?: boolean }) {
+  return <Tooltip><TooltipTrigger asChild><Button type={type} variant="ghost" size="icon" aria-label={label} onClick={onClick} disabled={disabled} className={className}>{children}</Button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="grid gap-1.5 text-xs font-semibold">{label}{children}</label>;
+}
+
+function Select({ value, onChange, options, disabled }: { value: string; onChange: (value: string) => void; options: string[]; disabled?: boolean }) {
+  return <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
+}
+
+function RoleNotice({ children }: { children: React.ReactNode }) {
+  return <p className="mt-3 flex items-center gap-2 rounded-md border border-dashed bg-surface p-3 text-[11px] text-muted-foreground"><Lock className="size-3.5 shrink-0 text-brand"/>{children}</p>;
+}
+
+/* ------------------------------------------------------------------ chrome --- */
+
+function Sidebar({ page, setPage, open, close, derived, role, setRole }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived; role: Role; setRole: (role: Role) => void }) {
   const badges: Record<BadgeKey, number> = { needsReply: derived.needsReply, pendingResponses: derived.pendingResponses, alerts: derived.alerts.length };
   return <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-transform duration-300 lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
     <div className="flex items-center justify-between px-2 pb-5"><BrandMark/><IconButton label="Close navigation" onClick={close} className="lg:hidden"><X/></IconButton></div>
     <button onClick={() => { setPage("Locations"); close(); }} className="mx-1 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-elevated p-2.5 text-left shadow-xs transition-colors hover:bg-sidebar-hover">
-      <span className="flex min-w-0 items-center gap-2.5"><span className="grid size-8 shrink-0 place-items-center rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">Northstar Group</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · Owner</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
+      <span className="flex min-w-0 items-center gap-2.5"><span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">Northstar Group</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
     </button>
-    <nav className="flex-1 space-y-5 overflow-y-auto" aria-label="Primary navigation">{navGroups.map((group) => <div key={group.label}><p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-muted">{group.label}</p><div className="space-y-0.5">{group.items.map((item) => { const Icon = item.icon; const active = page === item.name; const count = item.badge ? badges[item.badge] : 0; return <button key={item.name} onClick={() => { setPage(item.name); close(); }} className={cn("grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors", active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground")}><Icon className={cn("size-4", active && "text-brand")}/><span className="truncate">{item.name}</span>{count > 0 && <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-brand text-brand-foreground" : "bg-sidebar-hover text-sidebar-muted")}>{count}</span>}</button>})}</div></div>)}</nav>
-    <div className="border-t border-sidebar-border pt-3"><button onClick={() => { setPage("Team"); close(); }} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-sidebar-hover"><span className="grid size-8 shrink-0 place-items-center rounded-full bg-avatar text-xs font-bold text-avatar-foreground">RS</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-sidebar-foreground">Riya Sharma</span><span className="block truncate text-[10px] text-sidebar-muted">Workspace owner</span></span><MoreHorizontal className="size-4 text-sidebar-muted"/></button><div className="mt-2 flex items-center gap-1.5 px-2 text-[9px] text-sidebar-muted"><ShieldCheck className="size-3 text-brand"/>Software Vala™ — The Name of Trust</div></div>
+    <nav className="flex-1 space-y-5 overflow-y-auto" aria-label="Primary navigation">{navGroups.map((group) => <div key={group.label}><p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-muted">{group.label}</p><div className="space-y-0.5">{group.items.map((item) => { const Icon = item.icon; const active = page === item.name; const count = item.badge ? badges[item.badge] : 0; return <button key={item.name} onClick={() => { setPage(item.name); close(); }} className={cn("grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors", active ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs" : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground")}><Icon className={cn("size-4", active && "text-brand-bright")}/><span className="truncate">{item.name}</span>{count > 0 && <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-brand text-brand-foreground" : "bg-sidebar-hover text-sidebar-muted")}>{count}</span>}</button>})}</div></div>)}</nav>
+    <div className="border-t border-sidebar-border pt-3">
+      <button onClick={() => { setPage("Team"); close(); }} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-sidebar-hover"><span className="icon-3d size-8 shrink-0 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">RS</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{ACTOR_NAME}</span><span className="block truncate text-[10px] text-sidebar-muted">{role === "Admin" ? "Workspace owner" : `${role} access`}</span></span><MoreHorizontal className="size-4 text-sidebar-muted"/></button>
+      <label className="mt-2 grid gap-1 px-2 text-[9px] font-bold uppercase tracking-wider text-sidebar-muted">Active role
+        <select value={role} onChange={(event) => setRole(event.target.value as Role)} className="h-8 rounded-md border border-sidebar-border bg-sidebar-elevated px-2 text-[11px] font-semibold normal-case tracking-normal text-sidebar-foreground">{ROLES.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+      </label>
+      <div className="mt-2 flex items-center gap-1.5 px-2 text-[9px] text-sidebar-muted"><ShieldCheck className="size-3 text-brand-bright"/>Software Vala™ — The Name of Trust</div>
+    </div>
   </aside>;
 }
 
-function Topbar({ onMenu, onSearch, onNotifications, alertCount }: { onMenu: () => void; onSearch: () => void; onNotifications: () => void; alertCount: number }) {
-  return <header className="sticky top-0 z-30 grid h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b bg-background/95 px-4 backdrop-blur lg:px-7"><IconButton label="Open navigation" onClick={onMenu} className="lg:hidden"><Menu/></IconButton><button onClick={onSearch} className="flex h-9 min-w-0 max-w-xl items-center gap-2 rounded-md border bg-surface px-3 text-sm text-muted-foreground shadow-xs transition-colors hover:border-brand/40"><Search className="size-4 shrink-0"/><span className="truncate">Search reviews, people, or locations…</span><kbd className="ml-auto hidden shrink-0 rounded border bg-background px-1.5 py-0.5 text-[10px] sm:inline">⌘ K</kbd></button><div className="flex shrink-0 items-center gap-1"><IconButton label="Help center"><CircleHelp/></IconButton><div className="relative"><IconButton label="Notifications" onClick={onNotifications}><Bell/></IconButton>{alertCount > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive ring-2 ring-background"/>}</div></div></header>;
+function Topbar({ onMenu, onSearch, onNotifications, alertCount, role }: { onMenu: () => void; onSearch: () => void; onNotifications: () => void; alertCount: number; role: Role }) {
+  return <header className="glass sticky top-0 z-30 grid h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-none border-x-0 border-t-0 px-4 shadow-none lg:px-7"><IconButton label="Open navigation" onClick={onMenu} className="lg:hidden"><Menu/></IconButton><button onClick={onSearch} className="inset-3d flex h-9 min-w-0 max-w-xl items-center gap-2 rounded-md border bg-surface px-3 text-sm text-muted-foreground transition-colors hover:border-brand/40"><Search className="size-4 shrink-0"/><span className="truncate">Search reviews, people, or locations…</span><kbd className="ml-auto hidden shrink-0 rounded border bg-background px-1.5 py-0.5 text-[10px] sm:inline">⌘ K</kbd></button><div className="flex shrink-0 items-center gap-1"><span className="hidden sm:inline"><StatusPill tone="brand">{role}</StatusPill></span><IconButton label="Help center"><CircleHelp/></IconButton><div className="relative"><IconButton label="Notifications" onClick={onNotifications}><Bell/></IconButton>{alertCount > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive ring-2 ring-background"/>}</div></div></header>;
 }
 
 function MetricCard({ icon: Icon, label, value, note, tone = "brand" }: { icon: typeof Gauge; label: string; value: string; note: string; tone?: "brand" | "warning" | "success" }) {
-  return <div className="rounded-lg border bg-card p-4 shadow-card transition-transform hover:-translate-y-0.5"><div className="flex items-start justify-between"><div><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 font-display text-2xl font-bold text-card-foreground">{value}</p></div><span className={cn("grid size-9 place-items-center rounded-md", tone === "brand" ? "bg-brand-soft text-brand" : tone === "warning" ? "bg-warning-soft text-warning-strong" : "bg-success-soft text-success")}><Icon className="size-4"/></span></div><p className="mt-3 flex items-center gap-1 text-[11px] text-muted-foreground"><TrendingUp className="size-3 text-success"/>{note}</p></div>;
+  return <div className="card-3d outline-glass rounded-lg bg-card p-4"><div className="flex items-start justify-between"><div><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 font-display text-2xl font-bold text-card-foreground">{value}</p></div><span className={cn("icon-3d size-9", tone === "brand" ? "bg-brand-soft text-brand" : tone === "warning" ? "bg-warning-soft text-warning-strong" : "bg-success-soft text-success")}><Icon className="size-4"/></span></div><p className="mt-3 flex items-center gap-1 text-[11px] text-muted-foreground"><TrendingUp className="size-3 text-success"/>{note}</p></div>;
 }
 
 function TrendChart({ points, labels }: { points: number[]; labels: string[] }) {
@@ -304,8 +487,10 @@ function TrendChart({ points, labels }: { points: number[]; labels: string[] }) 
   });
   const line = coords.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
   const last = coords[coords.length - 1]!;
-  return <div className="mt-5"><div className="h-44 w-full"><svg viewBox="0 0 700 180" className="h-full w-full" preserveAspectRatio="none" aria-label="Average rating trend"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".2"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>{[30,75,120,165].map(y => <line key={y} x1="0" y1={y} x2="700" y2={y} stroke="var(--border)" strokeDasharray="4 6"/>)}<path d={`${line} L${width} ${height} L0 ${height}Z`} fill="url(#area)"/><path d={line} fill="none" stroke="var(--brand)" strokeWidth="3"/><circle cx={last.x} cy={last.y} r="5" fill="var(--brand)" stroke="var(--background)" strokeWidth="3"/></svg></div><div className="mt-2 grid text-center text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>{labels.map((label) => <span key={label}>{label}</span>)}</div></div>;
+  return <div className="mt-5"><div className="h-44 w-full"><svg viewBox="0 0 700 180" className="h-full w-full" preserveAspectRatio="none" aria-label="Average rating trend"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".28"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>{[30,75,120,165].map(y => <line key={y} x1="0" y1={y} x2="700" y2={y} stroke="var(--border)" strokeDasharray="4 6"/>)}<path d={`${line} L${width} ${height} L0 ${height}Z`} fill="url(#area)"/><path d={line} fill="none" stroke="var(--brand)" strokeWidth="3" strokeLinecap="round"/><circle cx={last.x} cy={last.y} r="5" fill="var(--brand)" stroke="var(--background)" strokeWidth="3"/></svg></div><div className="mt-2 grid text-center text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>{labels.map((label) => <span key={label}>{label}</span>)}</div></div>;
 }
+
+/* ------------------------------------------------------------------ pages --- */
 
 const journey = [
   { step: "Connect", copy: "Bring every review channel together" },
@@ -320,13 +505,13 @@ function JourneyStrip({ derived, responses }: { derived: Derived; responses: Res
   const done = [
     derived.sources.length > 0,
     derived.channels.length > 0,
-    derived.totalReviews > derived.needsReply,
+    derived.totalReviews > derived.unassigned,
     responses.length > 0,
     derived.periods.length > 1,
     responses.some((response) => response.response_status === "Published"),
   ];
   const active = done.filter(Boolean).length;
-  return <section className="mb-4 rounded-lg border bg-card p-4 shadow-card"><div className="flex items-center justify-between"><h2 className="font-display text-sm font-bold">Your reputation journey</h2><span className="text-[11px] text-muted-foreground">{active} of {journey.length} stages active</span></div><ol className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">{journey.map((item, index) => <li key={item.step} className="rounded-md border bg-surface p-3 transition-transform hover:-translate-y-0.5"><div className="flex items-center gap-2"><span className={cn("grid size-5 place-items-center rounded-full text-[10px] font-bold", done[index] ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground")}>{done[index] ? <Check className="size-3"/> : index + 1}</span><span className="text-xs font-semibold">{item.step}</span></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">{item.copy}</p></li>)}</ol></section>;
+  return <section className="card-3d mb-4 rounded-lg bg-card p-4"><div className="flex items-center justify-between"><h2 className="font-display text-sm font-bold">Your reputation journey</h2><span className="text-[11px] text-muted-foreground">{active} of {journey.length} stages active</span></div><ol className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">{journey.map((item, index) => <li key={item.step} className="card-3d rounded-md bg-surface p-3"><div className="flex items-center gap-2"><span className={cn("icon-3d size-5 rounded-full text-[10px] font-bold", done[index] ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground")}>{done[index] ? <Check className="size-3"/> : index + 1}</span><span className="text-xs font-semibold">{item.step}</span></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">{item.copy}</p></li>)}</ol></section>;
 }
 
 function Overview({ setPage, reviews, responses, derived }: { setPage: (p: PageKey) => void; reviews: Review[]; responses: ResponseRecord[]; derived: Derived }) {
@@ -335,19 +520,26 @@ function Overview({ setPage, reviews, responses, derived }: { setPage: (p: PageK
   const trendChange = derived.trend.length > 1 ? (derived.trend[derived.trend.length - 1]! - derived.trend[0]!) : 0;
   return <><JourneyStrip derived={derived} responses={responses}/><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
     <MetricCard icon={Star} label="Overall rating" value={derived.overallRating.toFixed(2)} note={`${derived.totalReviews} review${derived.totalReviews === 1 ? "" : "s"} counted`} tone="warning"/>
-    <MetricCard icon={Inbox} label="Reviews collected" value={String(derived.totalReviews)} note={`${derived.needsReply} need attention`}/>
+    <MetricCard icon={Inbox} label="Reviews collected" value={String(derived.totalReviews)} note={`${derived.needsReply} need attention · ${derived.unassigned} unassigned`}/>
     <MetricCard icon={MessageSquareReply} label="Response rate" value={`${derived.responseRate}%`} note={`${derived.replied} of ${derived.totalReviews} replied`} tone="success"/>
-    <MetricCard icon={Clock3} label="Positive sentiment" value={`${derived.positiveShare}%`} note={`${derived.escalated} escalated right now`}/></div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.85fr)]"><section className="rounded-lg border bg-card p-5 shadow-card"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-base font-bold">Reputation pulse</h2><p className="mt-1 text-xs text-muted-foreground">Average rating across all channels</p></div><StatusPill tone={trendChange >= 0 ? "good" : "bad"}>{trendChange >= 0 ? "+" : "−"}{Math.abs(trendChange).toFixed(2)}</StatusPill></div><TrendChart points={derived.trend} labels={derived.periods}/></section>
-      <section className="rounded-lg border bg-ink p-5 text-ink-foreground shadow-card"><div className="flex items-center gap-2 text-brand-bright"><Sparkles className="size-4"/><span className="text-xs font-bold uppercase tracking-wider">Reputation signal</span></div><h2 className="mt-5 font-display text-xl font-bold">{topLocation ? `${topLocation.name} leads at ${topLocation.score.toFixed(1)}★` : "Waiting for your first review"}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{topSource ? `${topSource.source} brings the most feedback right now, averaging ${topSource.score.toFixed(1)} stars across ${topSource.count} review${topSource.count === 1 ? "" : "s"}.` : "Connect a channel to start collecting customer feedback."}</p><div className="mt-5 flex flex-wrap gap-2">{derived.sources.slice(0,3).map((source) => <StatusPill key={source.source} tone={source.score >= 4 ? "good" : source.score >= 3 ? "warn" : "bad"}>{source.source} · {source.count}</StatusPill>)}</div><Button className="mt-6 w-full bg-brand text-brand-foreground hover:bg-brand/90" onClick={() => setPage("Analytics")}>Explore insight <Activity/></Button></section></div>
+    <MetricCard icon={Clock3} label="Positive sentiment" value={`${derived.positiveShare}%`} note={`${derived.escalated} escalated · ${derived.awaitingApproval} awaiting approval`}/></div>
+    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.85fr)]"><section className="card-3d rounded-lg bg-card p-5"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-base font-bold">Reputation pulse</h2><p className="mt-1 text-xs text-muted-foreground">Average rating across all channels</p></div><StatusPill tone={trendChange >= 0 ? "good" : "bad"}>{trendChange >= 0 ? "+" : "−"}{Math.abs(trendChange).toFixed(2)}</StatusPill></div><TrendChart points={derived.trend} labels={derived.periods}/></section>
+      <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><div className="flex items-center gap-2 text-brand-bright"><Sparkles className="size-4"/><span className="text-xs font-bold uppercase tracking-wider">Reputation signal</span></div><h2 className="mt-5 font-display text-xl font-bold">{topLocation ? `${topLocation.name} leads at ${topLocation.score.toFixed(1)}★` : "Waiting for your first review"}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{topSource ? `${topSource.source} brings the most feedback right now, averaging ${topSource.score.toFixed(1)} stars across ${topSource.count} review${topSource.count === 1 ? "" : "s"}.` : "Connect a channel to start collecting customer feedback."}</p><div className="mt-5 flex flex-wrap gap-2">{derived.sources.slice(0,3).map((source) => <StatusPill key={source.source} tone={source.score >= 4 ? "good" : source.score >= 3 ? "warn" : "bad"}>{source.source} · {source.count}</StatusPill>)}</div><Button className="mt-6 w-full bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage("Analytics")}>Explore insight <Activity/></Button></section></div>
     <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]"><RecentReviews setPage={setPage} reviews={reviews}/><LocationsSnapshot derived={derived}/></div></>;
 }
 
-function RecentReviews({ setPage, reviews }: { setPage: (p: PageKey) => void; reviews: Review[] }) { const attention = reviews.filter((review) => review.status !== "Replied").sort((a, b) => a.rating - b.rating).slice(0, 3); return <section className="rounded-lg border bg-card shadow-card"><div className="flex items-center justify-between border-b p-4"><div><h2 className="font-display text-base font-bold">Reviews needing attention</h2><p className="mt-1 text-xs text-muted-foreground">Prioritized by rating, recency, and risk</p></div><Button variant="ghost" size="sm" onClick={() => setPage("Reviews")}>View all</Button></div><div className="divide-y">{attention.map((review) => <button key={review.id} onClick={() => setPage("Reviews")} className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 p-4 text-left hover:bg-surface"><span className="grid size-9 place-items-center rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="min-w-0"><span className="flex items-center gap-2"><strong className="truncate text-sm">{review.name}</strong><span className="text-[10px] text-muted-foreground">{review.source}</span></span><span className="mt-1 block truncate text-xs text-muted-foreground">{review.text}</span><span className="mt-2 flex items-center gap-2"><Stars value={review.rating} small/><span className="text-[10px] text-muted-foreground">{review.time}</span></span></span><StatusPill tone={review.rating <= 2 ? "bad" : review.rating === 3 ? "warn" : "neutral"}>{review.status}</StatusPill></button>)}{!attention.length && <p className="p-6 text-center text-xs text-muted-foreground">Every review has a reply. Nothing needs attention.</p>}</div></section>; }
+function RecentReviews({ setPage, reviews }: { setPage: (p: PageKey) => void; reviews: Review[] }) {
+  const attention = reviews.filter((review) => review.status !== "Replied").sort((a, b) => a.rating - b.rating).slice(0, 3);
+  return <section className="card-3d rounded-lg bg-card"><div className="flex items-center justify-between border-b p-4"><div><h2 className="font-display text-base font-bold">Reviews needing attention</h2><p className="mt-1 text-xs text-muted-foreground">Prioritized by rating, recency, and risk</p></div><Button variant="ghost" size="sm" onClick={() => setPage("Reviews")}>View all</Button></div><div className="divide-y">{attention.map((review) => <button key={review.id} onClick={() => setPage("Reviews")} className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-3 p-4 text-left transition-colors hover:bg-surface"><span className="icon-3d size-9 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="min-w-0"><span className="flex items-center gap-2"><strong className="truncate text-sm">{review.name}</strong><span className="text-[10px] text-muted-foreground">{review.source}</span></span><span className="mt-1 block truncate text-xs text-muted-foreground">{review.text}</span><span className="mt-2 flex items-center gap-2"><Stars value={review.rating} small/><span className="text-[10px] text-muted-foreground">{review.time}</span></span></span><StatusPill tone={statusTone(review.status)}>{review.status}</StatusPill></button>)}{!attention.length && <p className="p-6 text-center text-xs text-muted-foreground">Every review has a reply. Nothing needs attention.</p>}</div></section>;
+}
 
-function LocationsSnapshot({ derived }: { derived: Derived }) { return <section className="rounded-lg border bg-card p-4 shadow-card"><div className="flex items-center justify-between"><div><h2 className="font-display text-base font-bold">Location health</h2><p className="mt-1 text-xs text-muted-foreground">Top and at-risk locations</p></div><MapPin className="size-4 text-brand"/></div><div className="mt-5 space-y-5">{derived.locations.map((row) => <div key={row.name}><div className="mb-2 flex items-center justify-between text-xs"><span className="truncate font-semibold">{row.name}</span><span><strong>{row.score.toFixed(1)}</strong> <span className="text-muted-foreground">· {row.reviews} review{row.reviews === 1 ? "" : "s"}</span></span></div><div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", row.score >= 4 ? "bg-brand" : row.score >= 3 ? "bg-warning" : "bg-destructive")} style={{width: `${(row.score / 5) * 100}%`}}/></div></div>)}{!derived.locations.length && <p className="text-xs text-muted-foreground">No locations yet.</p>}</div></section>; }
+function LocationsSnapshot({ derived }: { derived: Derived }) {
+  return <section className="card-3d rounded-lg bg-card p-4"><div className="flex items-center justify-between"><div><h2 className="font-display text-base font-bold">Location health</h2><p className="mt-1 text-xs text-muted-foreground">Top and at-risk locations</p></div><span className="icon-3d size-9 bg-brand-soft text-brand"><MapPin className="size-4"/></span></div><div className="mt-5 space-y-5">{derived.locations.map((row) => <div key={row.name}><div className="mb-2 flex items-center justify-between text-xs"><span className="truncate font-semibold">{row.name}</span><span><strong>{row.score.toFixed(1)}</strong> <span className="text-muted-foreground">· {row.reviews} review{row.reviews === 1 ? "" : "s"}</span></span></div><div className="inset-3d h-1.5 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", row.score >= 4 ? "bg-brand" : row.score >= 3 ? "bg-warning" : "bg-destructive")} style={{width: `${(row.score / 5) * 100}%`}}/></div></div>)}{!derived.locations.length && <p className="text-xs text-muted-foreground">No locations yet.</p>}</div></section>;
+}
 
-type CreateReviewInput = { name: string; source: string; location: string; rating: number; text: string };
+/* ----------------------------------------------------------------- reviews --- */
+
+type CreateReviewInput = { name: string; source: string; location: string; rating: number; text: string; reviewDate: string; sentiment: string; priority: string; assignee: string };
 
 function suggestResponse(review: Review) {
   const firstName = review.name.split(" ")[0] ?? "there";
@@ -356,53 +548,256 @@ function suggestResponse(review: Review) {
   return `Hi ${firstName}, I'm sorry your experience at ${review.location} fell short. This isn't the standard we hold ourselves to. Our team is reviewing what happened, and we'd like to make it right — please reply here so we can reach you directly.`;
 }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function ReviewForm({ close, createReview }: { close: () => void; createReview: (input: CreateReviewInput) => Promise<Review> }) {
-  const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "" });
+  const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "", reviewDate: todayISO(), sentiment: "Positive", priority: "Normal", assignee: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const update = (patch: Partial<CreateReviewInput>) => setForm((current) => ({ ...current, ...patch }));
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!form.name.trim() || !form.location.trim() || !form.text.trim()) { setError("Complete the customer, location, and review fields."); return; }
+    if (form.name.trim().length < 2) { setError("Enter the customer's name (at least 2 characters)."); return; }
+    if (!form.location.trim()) { setError("Choose the location this review is about."); return; }
+    if (form.text.trim().length < 10) { setError("Add the review text — at least 10 characters."); return; }
+    if (form.reviewDate > todayISO()) { setError("The review date cannot be in the future."); return; }
     setSaving(true); setError("");
-    try { await createReview(form); close(); } catch (caught) { console.error(caught); setError("Could not create this review. Try again."); } finally { setSaving(false); }
+    try { await createReview(form); close(); } catch (caught) { console.error(caught); setError("Could not save this review. Nothing was created — please try again."); } finally { setSaving(false); }
   };
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-overlay/60 p-4" onMouseDown={close}><form onSubmit={(event) => void submit(event)} onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-lg rounded-lg border bg-background p-5 shadow-modal"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold">Add a review</h2><p className="mt-1 text-xs text-muted-foreground">Capture a customer conversation in the shared inbox.</p></div><IconButton type="button" label="Close review form" onClick={close}><X/></IconButton></div><div className="mt-5 grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-xs font-semibold">Customer name<Input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Maya Chen" /></label><label className="grid gap-1.5 text-xs font-semibold">Source<select value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} className="h-10 rounded-md border bg-background px-3 text-sm font-normal"><option>Google</option><option>Trustpilot</option><option>Facebook</option><option>Internal</option></select></label><label className="grid gap-1.5 text-xs font-semibold">Location<Input required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Indiranagar, Bengaluru" /></label><label className="grid gap-1.5 text-xs font-semibold">Rating<select value={form.rating} onChange={(event) => setForm({ ...form, rating: Number(event.target.value) })} className="h-10 rounded-md border bg-background px-3 text-sm font-normal"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3">3 — Mixed</option><option value="2">2 — Poor</option><option value="1">1 — Critical</option></select></label></div><label className="mt-4 grid gap-1.5 text-xs font-semibold">Review text<textarea required value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} placeholder="What did the customer share?" className="min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring" /></label>{error && <p className="mt-3 text-xs text-destructive">{error}</p>}<div className="mt-5 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={close}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create review"}</Button></div></form></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-overlay/60 p-4 backdrop-blur-sm" onMouseDown={close}><form onSubmit={(event) => void submit(event)} onMouseDown={(event) => event.stopPropagation()} className="glass my-auto w-full max-w-2xl rounded-lg p-5 shadow-modal">
+    <div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold">Add a review</h2><p className="mt-1 text-xs text-muted-foreground">Capture a customer conversation in the shared inbox.</p></div><IconButton type="button" label="Close review form" onClick={close}><X/></IconButton></div>
+    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      <Field label="Business"><Input value="Northstar Group" readOnly className="bg-muted/60 font-normal"/></Field>
+      <Field label="Location"><Input required value={form.location} onChange={(event) => update({ location: event.target.value })} placeholder="Indiranagar, Bengaluru" className="font-normal"/></Field>
+      <Field label="Platform"><Select value={form.source} onChange={(value) => update({ source: value })} options={SOURCES}/></Field>
+      <Field label="Reviewer name"><Input required value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="Maya Chen" className="font-normal"/></Field>
+      <Field label="Rating"><Select value={String(form.rating)} onChange={(value) => { const rating = Number(value); update({ rating, sentiment: rating >= 4 ? "Positive" : rating === 3 ? "Mixed" : "Negative", priority: rating <= 2 ? "Urgent" : rating === 3 ? "High" : "Normal" }); }} options={["5","4","3","2","1"]}/></Field>
+      <Field label="Review date"><Input type="date" required max={todayISO()} value={form.reviewDate} onChange={(event) => update({ reviewDate: event.target.value })} className="font-normal"/></Field>
+      <Field label="Sentiment"><Select value={form.sentiment} onChange={(value) => update({ sentiment: value })} options={SENTIMENTS}/></Field>
+      <Field label="Priority"><Select value={form.priority} onChange={(value) => update({ priority: value })} options={PRIORITIES}/></Field>
+      <Field label="Assigned team member"><Select value={form.assignee} onChange={(value) => update({ assignee: value })} options={["", ...TEAM_MEMBERS]}/></Field>
+    </div>
+    <label className="mt-4 grid gap-1.5 text-xs font-semibold">Review text<textarea required value={form.text} onChange={(event) => update({ text: event.target.value })} placeholder="What did the customer share?" className="inset-3d min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring"/></label>
+    {error && <p role="alert" className="mt-3 rounded-md bg-destructive-soft p-3 text-xs font-semibold text-destructive">{error}</p>}
+    <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={close}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Create review"}</Button></div>
+  </form></div>;
 }
 
-function ReviewsPage({ reviews, responses, saveResponse, createReview, focusId }: { reviews: Review[]; responses: ResponseRecord[]; saveResponse: (reviewId: string, responseText: string) => Promise<void>; createReview: (input: CreateReviewInput) => Promise<Review>; focusId: string | null }) {
-  const [selected, setSelected] = useState<Review | null>(reviews[0] ?? null); const [reply, setReply] = useState(""); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [formOpen, setFormOpen] = useState(false);
-  const [query, setQuery] = useState(""); const [filter, setFilter] = useState<"All" | "Needs reply" | "Escalated">("All");
-  const visible = reviews.filter((review) => (filter === "All" || review.status === filter) && (!query.trim() || [review.name, review.text, review.location, review.source, review.status].join(" ").toLowerCase().includes(query.trim().toLowerCase())));
-  useEffect(() => { if (!selected && reviews[0]) setSelected(reviews[0]); }, [reviews, selected]);
-  useEffect(() => { if (!focusId) return; const match = reviews.find((review) => review.id === focusId); if (match) setSelected(match); }, [focusId, reviews]);
-  useEffect(() => { const existing = selected ? responses.find((response) => response.review_id === selected.id) : undefined; setReply(existing?.response_text ?? ""); }, [responses, selected]);
-  if (!selected) return <StatePanel state="Empty"/>;
-  const handleCreateReview = async (input: CreateReviewInput) => {
-    const created = await createReview(input);
-    setSelected(created);
-    return created;
-  };
-  const sendResponse = async () => { if (!reply.trim()) return; setSaving(true); setMessage(""); try { await saveResponse(selected.id, reply.trim()); setMessage("Draft saved to Response Center."); } catch (error) { console.error(error); setMessage("Could not save this response. Try again."); } finally { setSaving(false); } };
-  const currentResponse = responses.find((response) => response.review_id === selected.id);
-  const filters: ("All" | "Needs reply" | "Escalated")[] = ["All", "Needs reply", "Escalated"];
-  return <><div className="grid min-h-[calc(100vh-150px)] overflow-hidden rounded-lg border bg-card shadow-card xl:grid-cols-[minmax(360px,.9fr)_minmax(480px,1.3fr)]"><section className="border-r"><div className="border-b p-3"><div className="flex gap-2"><div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground"/><Input className="pl-9" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search reviews"/></div><Button onClick={() => setFormOpen(true)} size="icon" aria-label="Add review"><Plus/></Button><Button variant="outline" size="icon" aria-label="Clear filters" onClick={() => { setFilter("All"); setQuery(""); }}><Filter/></Button></div><div className="mt-3 flex gap-2 overflow-x-auto">{filters.map((item) => <button key={item} onClick={() => setFilter(item)}><StatusPill tone={filter === item ? "brand" : "neutral"}>{item} {item === "All" ? reviews.length : reviews.filter((review) => review.status === item).length}</StatusPill></button>)}</div></div><div className="divide-y">{visible.map((review) => <button key={review.id} onClick={() => setSelected(review)} className={cn("w-full p-4 text-left transition-colors", selected?.id === review.id ? "bg-brand-soft/60" : "hover:bg-surface")}><div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3"><span className="grid size-9 place-items-center rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="min-w-0"><strong className="block truncate text-sm">{review.name}</strong><span className="mt-1 flex items-center gap-2"><Stars value={review.rating} small/><span className="text-[10px] text-muted-foreground">{review.source}</span></span></span><span className="text-[10px] text-muted-foreground">{review.time}</span></div><p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{review.text}</p></button>)}{!visible.length && <p className="p-6 text-center text-xs text-muted-foreground">No reviews match this search.</p>}</div></section>
-     <section className="min-w-0"><div className="flex items-center justify-between border-b px-5 py-3"><div className="flex items-center gap-2"><StatusPill tone={selected.rating <= 2 ? "bad" : selected.rating === 3 ? "warn" : "good"}>{selected.sentiment}</StatusPill><StatusPill>{selected.status}</StatusPill></div><div className="flex"><IconButton label="Assign review"><Users/></IconButton><IconButton label="More actions"><MoreHorizontal/></IconButton></div></div><div className="p-5 lg:p-7"><div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-full bg-avatar font-display text-sm font-bold text-avatar-foreground">{selected.initials}</span><div className="min-w-0"><h2 className="font-display text-lg font-bold">{selected.name}</h2><p className="mt-1 text-xs text-muted-foreground">{selected.location} · {selected.source} · {selected.time}</p><div className="mt-3"><Stars value={selected.rating}/></div></div></div><blockquote className="mt-6 border-l-2 border-brand pl-4 text-[15px] leading-7 text-foreground">“{selected.text}”</blockquote><div className="mt-6 rounded-lg border bg-surface p-4"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-xs font-bold"><WandSparkles className="size-4 text-brand"/>Suggested response</span><button type="button" onClick={() => { setReply(suggestResponse(selected)); setMessage("Suggested wording inserted. Edit before saving."); }} className="text-xs font-semibold text-brand">Suggest wording</button></div><textarea value={reply} onChange={(e) => { setReply(e.target.value); setMessage(""); }} placeholder={`Hi ${selected.name.split(" ")[0]}, thank you for taking the time to share this with us…`} className="mt-3 min-h-32 w-full resize-none rounded-md border bg-background p-3 text-sm leading-6 outline-none transition-shadow focus:ring-2 focus:ring-ring"/><div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3"><span className="min-w-0 text-[11px] text-muted-foreground">{message || "Warm · Concise · Brand-safe"}</span><Button onClick={() => void sendResponse()} disabled={saving || !reply.trim()}><Send/>{saving ? "Saving…" : "Save draft"}</Button></div></div><div className="mt-5 border-t pt-5"><h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Collaboration</h3>{currentResponse ? <div className="mt-3 flex items-center gap-3 text-xs"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-avatar font-bold">{currentResponse.author_name.split(" ").slice(0,2).map((part) => part[0]).join("")}</span><span className="min-w-0"><strong>{currentResponse.author_name}</strong> has a response at “{currentResponse.response_status}”</span><StatusPill tone={currentResponse.response_status === "Published" ? "good" : "warn"}>{currentResponse.response_status}</StatusPill></div> : <p className="mt-3 text-xs text-muted-foreground">No response drafted yet for this review.</p>}</div></div></section></div>{formOpen && <ReviewForm close={() => setFormOpen(false)} createReview={handleCreateReview}/>}</>;
+type ReviewFilters = { query: string; status: string; source: string; rating: string; sentiment: string; location: string; priority: string; assignment: string; from: string; sort: string };
+
+const EMPTY_FILTERS: ReviewFilters = { query: "", status: "All", source: "All", rating: "All", sentiment: "All", location: "All", priority: "All", assignment: "All", from: "", sort: "Newest" };
+
+function applyFilters(reviews: Review[], filters: ReviewFilters) {
+  const query = filters.query.trim().toLowerCase();
+  const filtered = reviews.filter((review) => {
+    if (query && ![review.name, review.text, review.location, review.source, review.status, review.assignee ?? ""].join(" ").toLowerCase().includes(query)) return false;
+    if (filters.status !== "All" && review.status !== filters.status) return false;
+    if (filters.source !== "All" && review.source !== filters.source) return false;
+    if (filters.rating !== "All" && review.rating !== Number(filters.rating)) return false;
+    if (filters.sentiment !== "All" && review.sentiment !== filters.sentiment) return false;
+    if (filters.location !== "All" && review.location !== filters.location) return false;
+    if (filters.priority !== "All" && review.priority !== filters.priority) return false;
+    if (filters.assignment === "Assigned to me" && review.assignee !== ACTOR_NAME) return false;
+    if (filters.assignment === "Unassigned" && review.assignee) return false;
+    if (filters.from && review.reviewDate < filters.from) return false;
+    return true;
+  });
+  const order = { Urgent: 0, High: 1, Normal: 2, Low: 3 } as Record<string, number>;
+  return [...filtered].sort((a, b) => {
+    if (filters.sort === "Oldest") return a.createdAt.localeCompare(b.createdAt);
+    if (filters.sort === "Lowest rating") return a.rating - b.rating;
+    if (filters.sort === "Highest rating") return b.rating - a.rating;
+    if (filters.sort === "Priority") return (order[a.priority] ?? 9) - (order[b.priority] ?? 9);
+    return b.createdAt.localeCompare(a.createdAt);
+  });
 }
 
-function ResponseCenter({ reviews, responses, approveResponse, publishResponse }: { reviews: Review[]; responses: ResponseRecord[]; approveResponse: (responseId: string) => Promise<void>; publishResponse: (responseId: string) => Promise<void> }) {
-  const actionable = responses.filter((response) => response.response_status !== "Published");
+function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
+  if (!events.length) return <p className="mt-3 text-xs text-muted-foreground">No response activity recorded yet.</p>;
+  return <ol className="mt-3 space-y-3">{events.map((event) => <li key={event.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
+    <span className={cn("icon-3d mt-0.5 size-6 rounded-full text-[9px] font-bold", statusTone(event.to_status) === "good" ? "bg-success-soft text-success" : statusTone(event.to_status) === "bad" ? "bg-destructive-soft text-destructive" : statusTone(event.to_status) === "warn" ? "bg-warning-soft text-warning-strong" : "bg-brand-soft text-brand")}>{initialsOf(event.actor_name)}</span>
+    <span className="min-w-0"><span className="block text-xs font-semibold">{event.action}</span><span className="block text-[11px] text-muted-foreground">{event.actor_name} · {event.actor_role} · {formatMoment(event.created_at)}</span><span className="mt-1 block text-[11px] text-muted-foreground">{event.from_status ?? "New"} → {event.to_status}</span>{event.note && <span className="mt-1 block rounded-md bg-surface p-2 text-[11px] leading-5">{event.note}</span>}</span>
+  </li>)}</ol>;
+}
+
+function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, saveDraft, submitForApproval, updateReview, addNote, createReview }: {
+  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; notes: ReviewNote[]; focusId: string | null; role: Role;
+  can: (permission: Permission) => boolean;
+  saveDraft: (reviewId: string, text: string) => Promise<ResponseRecord>;
+  submitForApproval: (responseId: string) => Promise<ResponseRecord>;
+  updateReview: (reviewId: string, patch: { status?: string; priority?: string; assignee?: string | null }) => Promise<Review>;
+  addNote: (reviewId: string, note: string) => Promise<ReviewNote>;
+  createReview: (input: CreateReviewInput) => Promise<Review>;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [reply, setReply] = useState("");
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const runAction = async (action: () => Promise<void>, success: string) => { setMessage(""); try { await action(); setMessage(success); } catch (error) { console.error(error); setMessage("That action could not be completed. Try again."); } };
+  const [formOpen, setFormOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<ReviewFilters>(EMPTY_FILTERS);
+
+  const visible = useMemo(() => applyFilters(reviews, filters), [reviews, filters]);
+  const selected = reviews.find((review) => review.id === selectedId) ?? visible[0] ?? reviews[0] ?? null;
+
+  useEffect(() => { if (focusId && reviews.some((review) => review.id === focusId)) setSelectedId(focusId); }, [focusId, reviews]);
+
+  const currentResponse = selected ? responses.find((response) => response.review_id === selected.id) : undefined;
+  useEffect(() => { setReply(currentResponse?.response_text ?? ""); setMessage(""); }, [currentResponse?.id, currentResponse?.response_text, selected?.id]);
+
+  if (!selected) return <><StatePanel state="Empty" onCreate={can("createReview") ? () => setFormOpen(true) : undefined}/>{formOpen && <ReviewForm close={() => setFormOpen(false)} createReview={async (input) => { const created = await createReview(input); setSelectedId(created.id); return created; }}/>}</>;
+
+  const selectedNotes = notes.filter((note) => note.review_id === selected.id);
+  const selectedEvents = currentResponse ? events.filter((event) => event.response_id === currentResponse.id) : [];
+  const locations = Array.from(new Set(reviews.map((review) => review.location)));
+
+  const run = async (action: () => Promise<unknown>, success: string) => {
+    setSaving(true); setMessage("");
+    try { await action(); setMessage(success); }
+    catch (error) { console.error(error); setMessage("That action could not be saved. Nothing changed — please try again."); }
+    finally { setSaving(false); }
+  };
+
+  return <><div className="card-3d grid min-h-[calc(100vh-150px)] overflow-hidden rounded-lg bg-card xl:grid-cols-[minmax(340px,.9fr)_minmax(460px,1.3fr)]">
+    <section className="border-r">
+      <div className="border-b p-3">
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground"/><Input className="inset-3d pl-9" value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search reviews"/></div>
+          {can("createReview") && <Button onClick={() => setFormOpen(true)} size="icon" aria-label="Add review"><Plus/></Button>}
+          <IconButton label={filtersOpen ? "Hide filters" : "Show filters"} onClick={() => setFiltersOpen(!filtersOpen)} className="border"><Filter/></IconButton>
+          <IconButton label="Reset filters" onClick={() => setFilters(EMPTY_FILTERS)} className="border"><RotateCcw/></IconButton>
+        </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">{["All", ...REVIEW_STATUSES].map((item) => <button key={item} onClick={() => setFilters({ ...filters, status: item })}><StatusPill tone={filters.status === item ? "brand" : "neutral"}>{item} {item === "All" ? reviews.length : reviews.filter((review) => review.status === item).length}</StatusPill></button>)}</div>
+        {filtersOpen && <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <Field label="Platform"><Select value={filters.source} onChange={(value) => setFilters({ ...filters, source: value })} options={["All", ...SOURCES]}/></Field>
+          <Field label="Rating"><Select value={filters.rating} onChange={(value) => setFilters({ ...filters, rating: value })} options={["All","5","4","3","2","1"]}/></Field>
+          <Field label="Sentiment"><Select value={filters.sentiment} onChange={(value) => setFilters({ ...filters, sentiment: value })} options={["All", ...SENTIMENTS]}/></Field>
+          <Field label="Location"><Select value={filters.location} onChange={(value) => setFilters({ ...filters, location: value })} options={["All", ...locations]}/></Field>
+          <Field label="Priority"><Select value={filters.priority} onChange={(value) => setFilters({ ...filters, priority: value })} options={["All", ...PRIORITIES]}/></Field>
+          <Field label="Assignment"><Select value={filters.assignment} onChange={(value) => setFilters({ ...filters, assignment: value })} options={["All","Assigned to me","Unassigned"]}/></Field>
+          <Field label="From date"><Input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} className="font-normal"/></Field>
+          <Field label="Sort by"><Select value={filters.sort} onChange={(value) => setFilters({ ...filters, sort: value })} options={["Newest","Oldest","Lowest rating","Highest rating","Priority"]}/></Field>
+        </div>}
+      </div>
+      <div className="max-h-[calc(100vh-260px)] divide-y overflow-y-auto">{visible.map((review) => <button key={review.id} onClick={() => setSelectedId(review.id)} className={cn("w-full p-4 text-left transition-colors", selected.id === review.id ? "bg-brand-soft/60" : "hover:bg-surface")}>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3"><span className="icon-3d size-9 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="min-w-0"><strong className="block truncate text-sm">{review.name}</strong><span className="mt-1 flex items-center gap-2"><Stars value={review.rating} small/><span className="text-[10px] text-muted-foreground">{review.source} · {review.location}</span></span></span><span className="text-[10px] text-muted-foreground">{formatDate(review.reviewDate)}</span></div>
+        <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{review.text}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5"><StatusPill tone={statusTone(review.status)}>{review.status}</StatusPill><StatusPill tone={priorityTone(review.priority)}>{review.priority}</StatusPill><StatusPill>{review.assignee ?? "Unassigned"}</StatusPill></div>
+      </button>)}{!visible.length && <p className="p-6 text-center text-xs text-muted-foreground">No reviews match these filters.</p>}</div>
+    </section>
+
+    <section className="min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"><div className="flex flex-wrap items-center gap-2"><StatusPill tone={selected.sentiment === "Positive" ? "good" : selected.sentiment === "Mixed" ? "warn" : "bad"}>{selected.sentiment}</StatusPill><StatusPill tone={statusTone(selected.status)}>{selected.status}</StatusPill><StatusPill tone={priorityTone(selected.priority)}>{selected.priority} priority</StatusPill></div><div className="flex"><IconButton label="Open Response Center workflow" onClick={() => setMessage("Use the workflow panel below to draft, submit, and track this response.")}><Users/></IconButton><IconButton label="More actions" onClick={() => setMessage(`${selected.name} · ${selected.source} · ${formatDate(selected.reviewDate)}`)}><MoreHorizontal/></IconButton></div></div>
+      <div className="p-5 lg:p-7">
+        <div className="flex items-start gap-3"><span className="icon-3d size-11 shrink-0 rounded-full bg-avatar font-display text-sm font-bold text-avatar-foreground">{selected.initials}</span><div className="min-w-0"><h2 className="font-display text-lg font-bold">{selected.name}</h2><p className="mt-1 text-xs text-muted-foreground">{selected.location} · {selected.source} · {formatDate(selected.reviewDate)}</p><div className="mt-3"><Stars value={selected.rating}/></div></div></div>
+        <blockquote className="mt-6 border-l-2 border-brand pl-4 text-[15px] leading-7 text-foreground">“{selected.text}”</blockquote>
+
+        <div className="card-3d mt-6 grid gap-3 rounded-lg bg-surface p-4 sm:grid-cols-3">
+          <Field label="Status"><Select value={selected.status} onChange={(value) => void run(() => updateReview(selected.id, { status: value }), `Status set to ${value}.`)} options={REVIEW_STATUSES} disabled={!can("manageReview") || saving}/></Field>
+          <Field label="Priority"><Select value={selected.priority} onChange={(value) => void run(() => updateReview(selected.id, { priority: value }), `Priority set to ${value}.`)} options={PRIORITIES} disabled={!can("manageReview") || saving}/></Field>
+          <Field label="Assigned to"><Select value={selected.assignee ?? ""} onChange={(value) => void run(() => updateReview(selected.id, { assignee: value || null, status: value && selected.status === "Needs reply" ? "Assigned" : selected.status }), value ? `Assigned to ${value}.` : "Assignment cleared.")} options={["", ...TEAM_MEMBERS]} disabled={!can("manageReview") || saving}/></Field>
+          {!can("manageReview") && <div className="sm:col-span-3"><RoleNotice>{role} access is read-only for assignment, priority and status changes.</RoleNotice></div>}
+        </div>
+
+        <div className="card-3d mt-5 rounded-lg bg-surface p-4">
+          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-xs font-bold"><WandSparkles className="size-4 text-brand"/>Response workflow</span>{currentResponse && <StatusPill tone={statusTone(currentResponse.response_status)}>{currentResponse.response_status}</StatusPill>}</div>
+          {can("draftResponse") ? <>
+            <button type="button" onClick={() => { setReply(suggestResponse(selected)); setMessage("Suggested wording inserted. Edit before saving."); }} className="mt-3 text-xs font-semibold text-brand">Suggest wording</button>
+            <textarea value={reply} onChange={(event) => { setReply(event.target.value); setMessage(""); }} placeholder={`Hi ${selected.name.split(" ")[0]}, thank you for taking the time to share this with us…`} className="inset-3d mt-2 min-h-32 w-full resize-none rounded-md border bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"/>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><span className="min-w-0 text-[11px] text-muted-foreground">{message || "Warm · Concise · Brand-safe · Internal workflow only"}</span><span className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => void run(() => saveDraft(selected.id, reply.trim()), "Draft saved to Response Center.")} disabled={saving || !reply.trim()}><Send/>{saving ? "Saving…" : "Save draft"}</Button>
+              <Button size="sm" disabled={saving || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
+            </span></div>
+          </> : <RoleNotice>{role} access can read responses but cannot draft or submit them.</RoleNotice>}
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <section className="card-3d rounded-lg bg-card p-4"><h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground"><NotebookPen className="size-3.5 text-brand"/>Internal notes</h3><p className="mt-1 text-[11px] text-muted-foreground">Private to your team — never sent as a response.</p>
+            {can("addNote") ? <div className="mt-3 flex gap-2"><Input value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Add an internal note" className="font-normal"/><Button size="sm" disabled={saving || !noteDraft.trim()} onClick={() => void run(async () => { await addNote(selected.id, noteDraft.trim()); setNoteDraft(""); }, "Internal note added.")}>Add</Button></div> : <RoleNotice>{role} access cannot add internal notes.</RoleNotice>}
+            <ul className="mt-4 space-y-3">{selectedNotes.map((note) => <li key={note.id} className="rounded-md border bg-surface p-3 text-xs leading-5"><div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><strong className="text-foreground">{note.author_name}</strong>{formatMoment(note.created_at)}</div><p className="mt-1">{note.note_text}</p></li>)}{!selectedNotes.length && <li className="text-xs text-muted-foreground">No internal notes on this review yet.</li>}</ul>
+          </section>
+          <section className="card-3d rounded-lg bg-card p-4"><h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground"><History className="size-3.5 text-brand"/>Activity history</h3><p className="mt-1 text-[11px] text-muted-foreground">Every response action, with who did it and when.</p><ResponseTimeline events={selectedEvents}/></section>
+        </div>
+      </div>
+    </section>
+  </div>{formOpen && <ReviewForm close={() => setFormOpen(false)} createReview={async (input) => { const created = await createReview(input); setSelectedId(created.id); return created; }}/>}</>;
+}
+
+/* --------------------------------------------------------- response centre --- */
+
+function ResponseCenter({ reviews, responses, events, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
+  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; role: Role; can: (permission: Permission) => boolean;
+  approveResponse: (id: string) => Promise<ResponseRecord>;
+  rejectResponse: (id: string, note: string) => Promise<ResponseRecord>;
+  requestChanges: (id: string, note: string) => Promise<ResponseRecord>;
+  publishResponse: (id: string) => Promise<void>;
+  submitForApproval: (id: string) => Promise<ResponseRecord>;
+}) {
+  const [message, setMessage] = useState("");
+  const [noteFor, setNoteFor] = useState<{ id: string; mode: "Changes requested" | "Rejected" } | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openHistory, setOpenHistory] = useState<string | null>(null);
+
+  const actionable = responses.filter((response) => response.response_status !== "Published");
   const published = responses.filter((response) => response.response_status === "Published");
   const covered = new Set(responses.map((response) => response.review_id));
   const coverage = reviews.length ? Math.round((reviews.filter((review) => covered.has(review.id)).length / reviews.length) * 100) : 0;
-  const statusBreakdown = ["Draft", "Pending approval", "Approved", "Published"].map((label) => ({ label, count: responses.filter((response) => response.response_status === label).length }));
-  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]"><section className="rounded-lg border bg-card shadow-card"><div className="flex items-center justify-between border-b p-4"><div><h2 className="font-display font-bold">Approval queue</h2><p className="mt-1 text-xs text-muted-foreground">{actionable.length} responses need a decision</p></div><StatusPill tone={actionable.length ? "warn" : "good"}>{actionable.length ? `${actionable.length} open` : "All clear"}</StatusPill></div>{message && <p className="border-b bg-surface px-4 py-3 text-xs text-brand">{message}</p>}<div className="divide-y">{actionable.map((response) => { const review = reviews.find((item) => item.id === response.review_id); if (!review) return null; const approved = response.response_status === "Approved"; return <div key={response.id} className="p-5"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className="grid size-8 shrink-0 place-items-center rounded-full bg-avatar text-xs font-bold">{review.initials}</span><span className="truncate text-sm font-semibold">Response to {review.name}</span></div><Stars value={review.rating} small/></div><div className="mt-3 flex items-center gap-2"><StatusPill tone={approved ? "good" : "warn"}>{response.response_status}</StatusPill><span className="text-[11px] text-muted-foreground">{response.author_name}</span></div><p className="mt-4 rounded-md bg-surface p-3 text-xs leading-5 text-muted-foreground">{response.response_text}</p><div className="mt-3 flex justify-end gap-2"><Button variant="ghost" size="sm">Edit</Button>{!approved && <Button size="sm" onClick={() => void runAction(() => approveResponse(response.id), "Response approved. It is ready to publish.")}><Check/>Approve</Button>}{approved && <Button size="sm" onClick={() => void runAction(() => publishResponse(response.id), "Response published and review marked replied.")}><Send/>Publish</Button>}</div></div>; })}</div>{!actionable.length && <div className="p-10 text-center"><Check className="mx-auto size-6 text-success"/><p className="mt-3 text-sm font-semibold">Your response queue is clear.</p><p className="mt-1 text-xs text-muted-foreground">New drafts will appear here for review.</p></div>}</section><aside className="space-y-4"><section className="rounded-lg border bg-card p-5 shadow-card"><h2 className="font-display font-bold">Response coverage</h2><div className="mt-5 flex items-end gap-3"><span className="font-display text-4xl font-bold">{coverage}%</span><span className="pb-1 text-xs text-muted-foreground">of reviews have a response</span></div><div className="mt-4 h-2 rounded-full bg-muted"><div className={cn("h-full rounded-full", coverage >= 80 ? "bg-success" : coverage >= 50 ? "bg-warning" : "bg-destructive")} style={{ width: `${coverage}%` }}/></div><ul className="mt-5 space-y-3 text-xs">{statusBreakdown.map((row) => <li key={row.label} className="flex justify-between"><span className="text-muted-foreground">{row.label}</span><strong>{row.count}</strong></li>)}</ul></section><section className="rounded-lg border bg-card p-5 shadow-card"><h2 className="font-display font-bold">Published responses</h2>{published.length ? <div className="mt-3 space-y-2">{published.map((response) => { const review = reviews.find((item) => item.id === response.review_id); return <div key={response.id} className="rounded-md border p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong className="truncate">{review ? review.name : "Review removed"}</strong><StatusPill tone="good">Published</StatusPill></div><p className="mt-2 line-clamp-2 leading-5 text-muted-foreground">{response.response_text}</p></div>; })}</div> : <p className="mt-3 text-xs text-muted-foreground">Nothing published yet. Approve a draft, then publish it.</p>}</section></aside></div>;
+  const statusBreakdown = ["Draft", "Pending approval", "Changes requested", "Rejected", "Approved", "Published"].map((label) => ({ label, count: responses.filter((response) => response.response_status === label).length }));
+
+  const runAction = async (action: () => Promise<unknown>, success: string) => {
+    setBusy(true); setMessage("");
+    try { await action(); setMessage(success); }
+    catch (error) { console.error(error); setMessage("That action could not be completed. Nothing changed — please try again."); }
+    finally { setBusy(false); }
+  };
+
+  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
+    <section className="card-3d rounded-lg bg-card">
+      <div className="flex items-center justify-between border-b p-4"><div><h2 className="font-display font-bold">Approval queue</h2><p className="mt-1 text-xs text-muted-foreground">{actionable.length} response{actionable.length === 1 ? "" : "s"} in the internal workflow</p></div><StatusPill tone={actionable.length ? "warn" : "good"}>{actionable.length ? `${actionable.length} open` : "All clear"}</StatusPill></div>
+      {message && <p role="status" className="border-b bg-surface px-4 py-3 text-xs font-semibold text-brand">{message}</p>}
+      {!can("approveResponse") && <div className="border-b px-4 py-3"><RoleNotice>{role} access can follow the queue but cannot approve, reject or publish.</RoleNotice></div>}
+      <div className="divide-y">{actionable.map((response) => {
+        const review = reviews.find((item) => item.id === response.review_id);
+        if (!review) return null;
+        const status = response.response_status;
+        const history = events.filter((event) => event.response_id === response.id);
+        return <div key={response.id} className="p-5">
+          <div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className="icon-3d size-8 shrink-0 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="truncate text-sm font-semibold">Response to {review.name}</span></div><Stars value={review.rating} small/></div>
+          <div className="mt-3 flex flex-wrap items-center gap-2"><StatusPill tone={statusTone(status)}>{status}</StatusPill><span className="text-[11px] text-muted-foreground">{response.author_name} · {review.location} · updated {formatMoment(response.updated_at)}</span></div>
+          <p className="inset-3d mt-4 rounded-md bg-surface p-3 text-xs leading-5 text-muted-foreground">{response.response_text}</p>
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setOpenHistory(openHistory === response.id ? null : response.id)}><History/>{openHistory === response.id ? "Hide history" : "History"}</Button>
+            {can("draftResponse") && (status === "Draft" || status === "Changes requested" || status === "Rejected") && <Button variant="outline" size="sm" disabled={busy} onClick={() => void runAction(() => submitForApproval(response.id), "Sent to the approval queue.")}>Submit for approval</Button>}
+            {can("approveResponse") && status === "Pending approval" && <>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => { setNoteFor({ id: response.id, mode: "Changes requested" }); setNote(""); }}>Request changes</Button>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => { setNoteFor({ id: response.id, mode: "Rejected" }); setNote(""); }}>Reject</Button>
+              <Button size="sm" disabled={busy} onClick={() => void runAction(() => approveResponse(response.id), "Response approved. It is ready to publish internally.")}><Check/>Approve</Button>
+            </>}
+            {can("publishResponse") && status === "Approved" && <Button size="sm" disabled={busy} onClick={() => void runAction(() => publishResponse(response.id), "Published internally. The review is marked replied.")}><Send/>Publish internally</Button>}
+          </div>
+          {noteFor?.id === response.id && <div className="mt-3 rounded-md border bg-surface p-3"><Field label={noteFor.mode === "Rejected" ? "Why is this rejected?" : "What should change?"}><textarea value={note} onChange={(event) => setNote(event.target.value)} className="inset-3d min-h-20 resize-none rounded-md border bg-background p-2 text-xs font-normal leading-5 outline-none focus:ring-2 focus:ring-ring"/></Field><div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setNoteFor(null)}>Cancel</Button><Button size="sm" disabled={busy || !note.trim()} onClick={() => void runAction(async () => { const action = noteFor.mode === "Rejected" ? rejectResponse : requestChanges; await action(response.id, note.trim()); setNoteFor(null); }, noteFor.mode === "Rejected" ? "Response rejected and returned to the author." : "Changes requested from the author.")}>Send decision</Button></div></div>}
+          {openHistory === response.id && <div className="mt-4 border-t pt-4"><ResponseTimeline events={history}/></div>}
+        </div>;
+      })}</div>
+      {!actionable.length && <div className="p-10 text-center"><span className="icon-3d mx-auto size-10 bg-success-soft text-success"><Check className="size-5"/></span><p className="mt-3 text-sm font-semibold">Your response queue is clear.</p><p className="mt-1 text-xs text-muted-foreground">New drafts will appear here for review.</p></div>}
+    </section>
+
+    <aside className="space-y-4">
+      <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Response coverage</h2><div className="mt-5 flex items-end gap-3"><span className="font-display text-4xl font-bold">{coverage}%</span><span className="pb-1 text-xs text-muted-foreground">of reviews have a response</span></div><div className="inset-3d mt-4 h-2 rounded-full bg-muted"><div className={cn("h-full rounded-full", coverage >= 80 ? "bg-success" : coverage >= 50 ? "bg-warning" : "bg-destructive")} style={{ width: `${coverage}%` }}/></div><ul className="mt-5 space-y-3 text-xs">{statusBreakdown.map((row) => <li key={row.label} className="flex justify-between"><span className="text-muted-foreground">{row.label}</span><strong>{row.count}</strong></li>)}</ul></section>
+      <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Published internally</h2><p className="mt-1 text-[11px] text-muted-foreground">Published marks the response approved inside ReviewVala. Nothing is sent to an external platform.</p>{published.length ? <div className="mt-3 space-y-2">{published.map((response) => { const review = reviews.find((item) => item.id === response.review_id); return <div key={response.id} className="rounded-md border p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong className="truncate">{review ? review.name : "Review removed"}</strong><StatusPill tone="good">Published</StatusPill></div><p className="mt-2 line-clamp-2 leading-5 text-muted-foreground">{response.response_text}</p></div>; })}</div> : <p className="mt-3 text-xs text-muted-foreground">Nothing published yet. Approve a draft, then publish it internally.</p>}</section>
+    </aside>
+  </div>;
 }
+
+/* ----------------------------------------------------------------- modules --- */
 
 type ModuleKey = Exclude<PageKey, "Overview" | "Reviews" | "Response Center">;
 
-function buildModuleCard(page: ModuleKey, derived: Derived, responses: ResponseRecord[]): { metric: string; label: string; items: string[]; insight: string } {
+function buildModuleCard(page: ModuleKey, derived: Derived, responses: ResponseRecord[], role: Role): { metric: string; label: string; items: string[]; insight: string } {
   const topLocation = derived.locations[0];
   const weakest = derived.locations[derived.locations.length - 1];
   switch (page) {
@@ -415,44 +810,107 @@ function buildModuleCard(page: ModuleKey, derived: Derived, responses: ResponseR
     case "Locations":
       return { metric: String(derived.locations.length), label: "active locations", items: derived.locations.map((location) => `${location.name} · ${location.score.toFixed(1)}★ · ${location.score >= 4 ? "Healthy" : location.score >= 3 ? "Watch" : "At risk"}`), insight: topLocation ? `${topLocation.name} leads the network at ${topLocation.score.toFixed(1)} stars.` : "Add a review to start tracking locations." };
     case "Team":
-      return { metric: String(derived.teammates.length), label: "people writing responses", items: derived.teammates.map((member) => `${member.name} · ${member.drafted} drafted · ${member.published} published`), insight: derived.teammates.length ? `${derived.teammates.length} teammate${derived.teammates.length === 1 ? " is" : "s are"} handling the response queue.` : "No responses written yet." };
+      return { metric: String(derived.teammates.length), label: "people in the workflow", items: derived.teammates.map((member) => `${member.name} · ${member.assigned} assigned · ${member.drafted} drafted · ${member.published} published`), insight: derived.teammates.length ? `${derived.unassigned} review${derived.unassigned === 1 ? " is" : "s are"} still unassigned.` : "No responses or assignments recorded yet." };
     case "Reports":
       return { metric: String(derived.periods.length), label: "reporting periods captured", items: derived.periods.map((period, index) => `${period} · average ${(derived.trend[index] ?? 0).toFixed(2)}★`), insight: derived.periods.length > 1 ? `Ratings moved ${(derived.trend[derived.trend.length - 1]! - derived.trend[0]!).toFixed(2)} between ${derived.periods[0]} and ${derived.periods[derived.periods.length - 1]}.` : "Capture another period to compare performance." };
     case "Settings":
-      return { metric: String(derived.sources.length), label: "channels in use", items: derived.sources.map((source) => `${source.source} · ${source.count} review${source.count === 1 ? "" : "s"}`), insight: `${responses.length} response${responses.length === 1 ? "" : "s"} recorded across ${derived.sources.length} channel${derived.sources.length === 1 ? "" : "s"}.` };
+      return { metric: String(derived.sources.length), label: "channels in use", items: [...derived.sources.map((source) => `${source.source} · ${source.count} review${source.count === 1 ? "" : "s"}`), `Active role · ${role} — ${ROLE_SUMMARY[role]}`], insight: `${responses.length} response${responses.length === 1 ? "" : "s"} recorded. Responses are published inside ReviewVala only — no external platform is connected.` };
   }
 }
 
-function ModulePage({ page, derived, reviews, responses, setPage }: { page: ModuleKey; derived: Derived; reviews: Review[]; responses: ResponseRecord[]; setPage: (p: PageKey) => void }) {
-  const data = buildModuleCard(page, derived, responses);
+function ModulePage({ page, derived, reviews, responses, setPage, role }: { page: ModuleKey; derived: Derived; reviews: Review[]; responses: ResponseRecord[]; setPage: (p: PageKey) => void; role: Role }) {
+  const data = buildModuleCard(page, derived, responses, role);
   const distribution = [5,4,3,2,1].map((rating) => ({ rating, count: reviews.filter((review) => review.rating === rating).length }));
   const maxCount = Math.max(1, ...distribution.map((bucket) => bucket.count));
-  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]"><section className="rounded-lg border bg-card shadow-card"><div className="flex items-center justify-between border-b p-5"><div><h2 className="font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p></div><StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill></div><div className="p-6"><div className="flex items-end gap-3"><span className="font-display text-5xl font-bold">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>{page === "Ratings" || page === "Analytics" || page === "Reports" ? <TrendChart points={derived.trend} labels={derived.periods}/> : <div className="my-8"><div className="grid h-36 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="rounded-t bg-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}<div className="grid gap-3 sm:grid-cols-3">{data.items.map((item) => <div key={item} className="rounded-md border bg-surface p-3 text-left text-xs font-semibold">{item}</div>)}{!data.items.length && <p className="text-xs text-muted-foreground">No data recorded for this view yet.</p>}</div></div></section><aside className="space-y-4"><section className="rounded-lg border bg-ink p-5 text-ink-foreground shadow-card"><Sparkles className="size-4 text-brand-bright"/><h2 className="mt-4 font-display text-lg font-bold">What matters now</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{data.insight}</p><Button className="mt-5 bg-brand text-brand-foreground hover:bg-brand/90" onClick={() => setPage(page === "Team" || page === "Settings" ? "Response Center" : "Reviews")}>{page === "Team" || page === "Settings" ? "Open Response Center" : "Open reviews"}</Button></section><section className="rounded-lg border bg-card p-5 shadow-card"><h2 className="font-display font-bold">Quick actions</h2><div className="mt-3 grid gap-2"><Button variant="outline" className="justify-start" onClick={() => setPage("Reviews")}><Plus/>Add a review</Button><Button variant="outline" className="justify-start" onClick={() => setPage("Response Center")}><Users/>Review the response queue</Button></div></section></aside></div>;
+  const showTrend = page === "Ratings" || page === "Analytics" || page === "Reports";
+  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
+    <section className="card-3d rounded-lg bg-card"><div className="flex items-center justify-between border-b p-5"><div><h2 className="font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p></div><StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill></div>
+      <div className="p-6"><div className="flex items-end gap-3"><span className="font-display text-5xl font-bold">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>
+        {showTrend ? <TrendChart points={derived.trend} labels={derived.periods}/> : <div className="my-8"><div className="grid h-36 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
+        <div className="grid gap-3 sm:grid-cols-2">{data.items.map((item) => <div key={item} className="card-3d rounded-md bg-surface p-3 text-left text-xs font-semibold">{item}</div>)}{!data.items.length && <p className="text-xs text-muted-foreground">No data recorded for this view yet.</p>}</div>
+      </div></section>
+    <aside className="space-y-4">
+      <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><span className="icon-3d size-9 bg-sidebar-hover text-brand-bright"><Sparkles className="size-4"/></span><h2 className="mt-4 font-display text-lg font-bold">What matters now</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{data.insight}</p><Button className="mt-5 bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage(page === "Team" || page === "Settings" ? "Response Center" : "Reviews")}>{page === "Team" || page === "Settings" ? "Open Response Center" : "Open reviews"}</Button></section>
+      <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Quick actions</h2><div className="mt-3 grid gap-2"><Button variant="outline" className="justify-start" onClick={() => setPage("Reviews")}><Plus/>Add a review</Button><Button variant="outline" className="justify-start" onClick={() => setPage("Response Center")}><Users/>Review the response queue</Button></div></section>
+    </aside>
+  </div>;
 }
 
-function StatePanel({ state, onRetry }: { state: Exclude<PreviewState, "Live data">; onRetry?: () => void }) { const config = state === "Loading" ? {icon: Activity,title:"Loading your reputation workspace",copy:"Bringing together reviews, ratings, and team activity…"} : state === "Empty" ? {icon: Inbox,title:"Your inbox is clear",copy:"New reviews from every connected channel will appear here."} : {icon: AlertCircle,title:"We couldn’t refresh this view",copy:"Your existing data is safe. Try again in a moment."}; const Icon=config.icon; return <div className="grid min-h-[420px] place-items-center rounded-lg border bg-card p-8 text-center shadow-card"><div className="max-w-sm"><span className={cn("mx-auto grid size-12 place-items-center rounded-lg", state === "Error" ? "bg-destructive-soft text-destructive" : "bg-brand-soft text-brand")}><Icon className={cn("size-5", state === "Loading" && "animate-spin")}/></span><h2 className="mt-5 font-display text-xl font-bold">{config.title}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{config.copy}</p>{state === "Error" && onRetry && <Button className="mt-5" onClick={onRetry}>Try again</Button>}</div></div>; }
+/* ------------------------------------------------------------------ states --- */
+
+function StatePanel({ state, onRetry, onCreate }: { state: Exclude<PreviewState, "Live data">; onRetry?: (() => void) | undefined; onCreate?: (() => void) | undefined }) {
+  const config = state === "Loading"
+    ? { icon: Activity, title: "Loading your reputation workspace", copy: "Bringing together reviews, ratings, and team activity…" }
+    : state === "Empty"
+      ? { icon: Inbox, title: "No reviews yet", copy: "Add your first customer review and it will appear in the shared inbox straight away." }
+      : { icon: AlertCircle, title: "We couldn’t load this view", copy: "Your existing data is safe. Check your connection and try again." };
+  const Icon = config.icon;
+  return <div className="card-3d grid min-h-[420px] place-items-center rounded-lg bg-card p-8 text-center"><div className="max-w-sm"><span className={cn("icon-3d mx-auto size-12 rounded-lg", state === "Error" ? "bg-destructive-soft text-destructive" : "bg-brand-soft text-brand")}><Icon className={cn("size-5", state === "Loading" && "animate-spin")}/></span><h2 className="mt-5 font-display text-xl font-bold">{config.title}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{config.copy}</p>{state === "Error" && onRetry && <Button className="mt-5" onClick={onRetry}>Try again</Button>}{state === "Empty" && onCreate && <Button className="mt-5" onClick={onCreate}><Plus/>Add a review</Button>}</div></div>;
+}
 
 function SearchOverlay({ close, reviews, onSelect }: { close: () => void; reviews: Review[]; onSelect: (review: Review) => void }) {
   const [query, setQuery] = useState("");
-  const matches = query.trim() ? reviews.filter((review) => [review.name, review.text, review.location, review.source, review.status].join(" ").toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8) : reviews.slice(0, 5);
-  return <div className="fixed inset-0 z-50 bg-overlay p-4 backdrop-blur-sm" onMouseDown={close}><div onMouseDown={(e)=>e.stopPropagation()} className="mx-auto mt-[10vh] max-w-2xl overflow-hidden rounded-lg border bg-background shadow-modal"><div className="flex items-center gap-3 border-b p-4"><Search className="size-5 text-brand"/><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") close(); }} className="min-w-0 flex-1 bg-transparent text-base outline-none" placeholder="Search reviews, customers, locations…"/><kbd className="rounded border px-2 py-1 text-[10px] text-muted-foreground">ESC</kbd></div><div className="max-h-[50vh] overflow-y-auto p-3"><p className="px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{query.trim() ? `${matches.length} match${matches.length === 1 ? "" : "es"}` : "Latest reviews"}</p>{matches.map((review) => <button key={review.id} onClick={() => { onSelect(review); close(); }} className="flex w-full items-center gap-3 rounded-md p-3 text-left text-sm hover:bg-surface">{review.rating <= 2 ? <Star className="size-4 shrink-0 text-destructive"/> : <MapPin className="size-4 shrink-0 text-brand"/>}<span className="min-w-0 flex-1"><strong className="block truncate">{review.name} · {review.rating}★</strong><span className="block truncate text-xs text-muted-foreground">{review.location} · {review.text}</span></span></button>)}{!matches.length && <p className="p-4 text-center text-xs text-muted-foreground">Nothing matches that search.</p>}</div></div></div>;
+  const matches = query.trim()
+    ? reviews.filter((review) => [review.name, review.text, review.location, review.source, review.status, review.assignee ?? ""].join(" ").toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8)
+    : reviews.slice(0, 5);
+  return <div className="fixed inset-0 z-50 bg-overlay p-4 backdrop-blur-sm" onMouseDown={close}><div onMouseDown={(event) => event.stopPropagation()} className="glass mx-auto mt-[10vh] max-w-2xl overflow-hidden rounded-lg shadow-modal">
+    <div className="flex items-center gap-3 border-b p-4"><Search className="size-5 text-brand"/><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") close(); }} className="min-w-0 flex-1 bg-transparent text-base outline-none" placeholder="Search reviews, customers, locations…"/><kbd className="rounded border px-2 py-1 text-[10px] text-muted-foreground">ESC</kbd></div>
+    <div className="max-h-[50vh] overflow-y-auto p-3"><p className="px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{query.trim() ? `${matches.length} match${matches.length === 1 ? "" : "es"}` : "Latest reviews"}</p>{matches.map((review) => <button key={review.id} onClick={() => { onSelect(review); close(); }} className="flex w-full items-center gap-3 rounded-md p-3 text-left text-sm hover:bg-surface">{review.rating <= 2 ? <Star className="size-4 shrink-0 text-destructive"/> : <MapPin className="size-4 shrink-0 text-brand"/>}<span className="min-w-0 flex-1"><strong className="block truncate">{review.name} · {review.rating}★</strong><span className="block truncate text-xs text-muted-foreground">{review.location} · {review.text}</span></span></button>)}{!matches.length && <p className="p-4 text-center text-xs text-muted-foreground">Nothing matches that search.</p>}</div>
+  </div></div>;
 }
 
 function Notifications({ close, derived, goTo }: { close: () => void; derived: Derived; goTo: (page: PageKey) => void }) {
-  return <div className="fixed inset-0 z-50 bg-overlay/50" onMouseDown={close}><aside onMouseDown={(e)=>e.stopPropagation()} className="absolute right-0 top-0 h-full w-full max-w-sm overflow-y-auto bg-background p-5 shadow-modal"><div className="flex items-center justify-between"><div><h2 className="font-display text-lg font-bold">Notifications</h2><p className="mt-1 text-xs text-muted-foreground">{derived.alerts.length ? `${derived.alerts.length} need your attention` : "Nothing needs attention"}</p></div><IconButton label="Close notifications" onClick={close}><X/></IconButton></div><div className="mt-6 space-y-2">{derived.alerts.map((alert, index) => <button key={`${alert.title}-${index}`} onClick={() => { goTo(alert.tone === "brand" ? "Response Center" : "Reviews"); close(); }} className="w-full rounded-lg border p-4 text-left hover:bg-surface"><span className="flex items-start gap-3"><span className={cn("mt-1 size-2 shrink-0 rounded-full", alert.tone === "bad" ? "bg-destructive" : alert.tone === "warn" ? "bg-warning" : "bg-brand")}/><span className="min-w-0"><strong className="block text-sm">{alert.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{alert.meta}</span></span></span></button>)}{!derived.alerts.length && <p className="rounded-lg border p-6 text-center text-xs text-muted-foreground">You're all caught up.</p>}</div></aside></div>;
+  return <div className="fixed inset-0 z-50 bg-overlay/50" onMouseDown={close}><aside onMouseDown={(event) => event.stopPropagation()} className="glass absolute right-0 top-0 h-full w-full max-w-sm overflow-y-auto rounded-none p-5 shadow-modal">
+    <div className="flex items-center justify-between"><div><h2 className="font-display text-lg font-bold">Notifications</h2><p className="mt-1 text-xs text-muted-foreground">{derived.alerts.length ? `${derived.alerts.length} need your attention` : "Nothing needs attention"}</p></div><IconButton label="Close notifications" onClick={close}><X/></IconButton></div>
+    <div className="mt-6 space-y-2">{derived.alerts.map((alert, index) => <button key={`${alert.title}-${index}`} onClick={() => { goTo(alert.tone === "brand" ? "Response Center" : "Reviews"); close(); }} className="card-3d w-full rounded-lg bg-card p-4 text-left"><span className="flex items-start gap-3"><span className={cn("mt-1 size-2 shrink-0 rounded-full", alert.tone === "bad" ? "bg-destructive" : alert.tone === "warn" ? "bg-warning" : "bg-brand")}/><span className="min-w-0"><strong className="block text-sm">{alert.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{alert.meta}</span></span></span></button>)}{!derived.alerts.length && <p className="rounded-lg border p-6 text-center text-xs text-muted-foreground">You're all caught up.</p>}</div>
+  </aside></div>;
 }
 
+/* -------------------------------------------------------------------- app --- */
+
 export function ReviewValaApp() {
-  const [page, setPage] = useState<PageKey>("Overview"); const [menu, setMenu] = useState(false); const [search, setSearch] = useState(false); const [notifications, setNotifications] = useState(false); const [focusId, setFocusId] = useState<string | null>(null);
-  const { reviews, responses, snapshots, dataStatus, refresh, saveResponse, approveResponse, publishResponse, createReview } = useWorkspaceData();
-  const derived = useMemo(() => deriveWorkspace(reviews, responses, snapshots), [reviews, responses, snapshots]);
+  const [page, setPage] = useState<PageKey>("Overview");
+  const [menu, setMenu] = useState(false);
+  const [search, setSearch] = useState(false);
+  const [notifications, setNotifications] = useState(false);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const { role, setRole, can } = useRole();
+  const data = useWorkspaceData(role);
+  const derived = useMemo(() => deriveWorkspace(data.reviews, data.responses, data.snapshots), [data.reviews, data.responses, data.snapshots]);
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearch(true); } if (event.key === "Escape") { setSearch(false); setNotifications(false); setMenu(false); } };
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearch(true); }
+      if (event.key === "Escape") { setSearch(false); setNotifications(false); setMenu(false); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
   const openReview = (review: Review) => { setFocusId(review.id); setPage("Reviews"); };
-  const content = useMemo(() => page === "Overview" ? <Overview setPage={setPage} reviews={reviews} responses={responses} derived={derived}/> : page === "Reviews" ? <ReviewsPage reviews={reviews} responses={responses} saveResponse={saveResponse} createReview={createReview} focusId={focusId}/> : page === "Response Center" ? <ResponseCenter reviews={reviews} responses={responses} approveResponse={approveResponse} publishResponse={publishResponse}/> : <ModulePage page={page} derived={derived} reviews={reviews} responses={responses} setPage={setPage}/>, [page, reviews, responses, derived, focusId, saveResponse, approveResponse, publishResponse, createReview]);
-  const resolvedState: PreviewState = dataStatus === "loading" ? "Loading" : dataStatus === "error" ? "Error" : "Live data";
-  return <TooltipProvider delayDuration={250}><div className="min-h-screen bg-background text-foreground"><Sidebar page={page} setPage={setPage} open={menu} close={()=>setMenu(false)} derived={derived}/>{menu && <button aria-label="Close navigation" className="fixed inset-0 z-30 bg-overlay lg:hidden" onClick={()=>setMenu(false)}/>}<div className="lg:pl-[248px]"><Topbar onMenu={()=>setMenu(true)} onSearch={()=>setSearch(true)} onNotifications={()=>setNotifications(true)} alertCount={derived.alerts.length}/><main className="mx-auto max-w-[1600px] px-4 py-5 pb-24 lg:px-7 lg:py-7"><header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4"><div className="min-w-0"><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Northstar Group / {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p><h1 className="truncate font-display text-2xl font-bold lg:text-[28px]">{page}</h1><p className="mt-1 hidden text-sm text-muted-foreground sm:block">{pageDescriptions[page]}</p></div><Button className="hidden sm:flex" onClick={() => setPage(page === "Reviews" ? "Response Center" : "Reviews")}>{page === "Reviews" ? <><MessageSquareReply/>Respond</> : <><Plus/>Open reviews</>}</Button></header>{resolvedState === "Live data" ? content : <StatePanel state={resolvedState} onRetry={() => void refresh()}/>}</main></div><nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-background px-2 py-1.5 shadow-modal lg:hidden">{(["Overview","Reviews","Response Center","Analytics","Settings"] as PageKey[]).map((item)=>{const Icon=navGroups.flatMap(x=>x.items).find(x=>x.name===item)?.icon ?? Gauge; return <button key={item} onClick={()=>setPage(item)} className={cn("flex flex-col items-center gap-1 py-1 text-[9px]", page===item?"text-brand":"text-muted-foreground")}><Icon className="size-5"/><span>{item === "Response Center" ? "Respond" : item}</span></button>})}</nav>{search && <SearchOverlay close={()=>setSearch(false)} reviews={reviews} onSelect={openReview}/>} {notifications && <Notifications close={()=>setNotifications(false)} derived={derived} goTo={setPage}/>}</div></TooltipProvider>;
+
+  const content = page === "Overview"
+    ? <Overview setPage={setPage} reviews={data.reviews} responses={data.responses} derived={derived}/>
+    : page === "Reviews"
+      ? <ReviewsPage reviews={data.reviews} responses={data.responses} events={data.events} notes={data.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} addNote={data.addNote} createReview={data.createReview}/>
+      : page === "Response Center"
+        ? <ResponseCenter reviews={data.reviews} responses={data.responses} events={data.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
+        : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
+
+  const resolvedState: PreviewState = data.dataStatus === "loading" ? "Loading" : data.dataStatus === "error" ? "Error" : "Live data";
+
+  return <TooltipProvider delayDuration={250}><div className="min-h-screen bg-background text-foreground">
+    <Sidebar page={page} setPage={setPage} open={menu} close={() => setMenu(false)} derived={derived} role={role} setRole={setRole}/>
+    {menu && <button aria-label="Close navigation" className="fixed inset-0 z-30 bg-overlay lg:hidden" onClick={() => setMenu(false)}/>}
+    <div className="lg:pl-[248px]">
+      <Topbar onMenu={() => setMenu(true)} onSearch={() => setSearch(true)} onNotifications={() => setNotifications(true)} alertCount={derived.alerts.length} role={role}/>
+      <main className="mx-auto max-w-[1600px] px-4 py-5 pb-24 lg:px-7 lg:py-7">
+        <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4"><div className="min-w-0"><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Northstar Group / {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p><h1 className="truncate font-display text-2xl font-bold lg:text-[28px]">{page}</h1><p className="mt-1 hidden text-sm text-muted-foreground sm:block">{pageDescriptions[page]}</p></div><Button className="hidden shadow-brand sm:flex" onClick={() => setPage(page === "Reviews" ? "Response Center" : "Reviews")}>{page === "Reviews" ? <><MessageSquareReply/>Respond</> : <><Plus/>Open reviews</>}</Button></header>
+        {resolvedState === "Live data" ? content : <StatePanel state={resolvedState} onRetry={() => void data.refresh()}/>}
+      </main>
+    </div>
+    <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card px-2 py-1.5 shadow-modal lg:hidden">{(["Overview","Reviews","Response Center","Analytics","Settings"] as PageKey[]).map((item) => { const Icon = navGroups.flatMap((group) => group.items).find((navItem) => navItem.name === item)?.icon ?? Gauge; return <button key={item} onClick={() => setPage(item)} className={cn("flex flex-col items-center gap-1 py-1 text-[9px]", page === item ? "text-brand" : "text-muted-foreground")}><Icon className="size-5"/><span>{item === "Response Center" ? "Respond" : item}</span></button>; })}</nav>
+    {search && <SearchOverlay close={() => setSearch(false)} reviews={data.reviews} onSelect={openReview}/>}
+    {notifications && <Notifications close={() => setNotifications(false)} derived={derived} goTo={setPage}/>}
+  </div></TooltipProvider>;
 }
