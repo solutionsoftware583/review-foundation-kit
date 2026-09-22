@@ -413,7 +413,7 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     ...responses.filter((response) => response.response_status === "Changes requested").map((response) => ({ tone: "warn" as const, title: `Changes requested on a response by ${response.author_name}`, meta: "Response Center" })),
   ];
 
-  return { totalReviews, needsReply, escalated, replied, unassigned, urgent, pendingResponses, awaitingApproval, overallRating, responseRate, positiveShare, periods, trend, channels, locations, sources, teammates, alerts };
+  return { totalReviews, needsReply, escalated, replied, unassigned, urgent, pendingResponses, awaitingApproval, overallRating, responseRate, positiveShare, periods, trend, channels, channelSeries, locations, sources, teammates, alerts, sentimentMix, priorityMix, pipeline, volume, ratingBreakdown };
 }
 
 const pageDescriptions: Record<PageKey, string> = {
