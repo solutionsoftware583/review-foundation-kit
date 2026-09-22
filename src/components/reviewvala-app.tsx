@@ -50,6 +50,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { Overlay } from "@/components/overlay";
 import { formatDate, formatMoment } from "@/lib/format";
 import { externalPermalink, matchAssignee, slaInfo, SLA_HOURS, type AssignmentRule } from "@/lib/review-sla";
+import { ApprovalPoliciesPanel, CompliancePanel, PublishTargetsPanel, TemplateLibraryPanel } from "@/components/response-admin";
+import { checkCompliance, fillTemplate, hasBlocker, matchPolicy, newIdempotencyKey, suggestTemplates, targetFor, type ApprovalPolicy, type ComplianceRule, type PublishTarget, type ResponseTemplate } from "@/lib/response-rules";
 import { AssignmentRulesPanel, AuditLogPanel, BusinessesPanel, InvitesPanel, ProfilePanel, WorkspaceSettingsPanel, logAudit } from "@/components/workspace-admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -376,7 +378,7 @@ function useWorkspaceData(role: Role, actorName: string) {
     return review;
   }, [rules]);
 
-  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
+  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, templates, complianceRules, policies, targets, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
 }
 
 /* -------------------------------------------------------------- derived --- */
