@@ -49,7 +49,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Overlay } from "@/components/overlay";
 import { formatDate, formatMoment } from "@/lib/format";
 import { externalPermalink, matchAssignee, slaInfo, SLA_HOURS, type AssignmentRule } from "@/lib/review-sla";
-import { AuditLogPanel, BusinessesPanel, InvitesPanel, ProfilePanel, WorkspaceSettingsPanel, logAudit } from "@/components/workspace-admin";
+import { AssignmentRulesPanel, AuditLogPanel, BusinessesPanel, InvitesPanel, ProfilePanel, WorkspaceSettingsPanel, logAudit } from "@/components/workspace-admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1179,6 +1179,44 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
   </div>;
 }
 
+function EscalationPanel({ reviews, role, can, updateReviews, openReview }: { reviews: Review[]; role: Role; can: (permission: Permission) => boolean; updateReviews: (ids: string[], patch: ReviewPatch) => Promise<Review[]>; openReview: (review: Review) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const open = reviews.filter((review) => !review.archivedAt && !review.mergedInto);
+  const overdue = open.filter((review) => !review.firstResponseAt && slaInfo(review).breached);
+  const dueSoon = open.filter((review) => slaInfo(review).tone === "warn");
+  const toEscalate = overdue.filter((review) => review.status !== "Escalated");
+
+  const escalate = async () => {
+    setBusy(true); setMessage("");
+    try { await updateReviews(toEscalate.map((review) => review.id), { status: "Escalated", priority: "Urgent" }); setMessage(`${toEscalate.length} review(s) escalated.`); }
+    catch (error) { console.error(error); setMessage("Those reviews could not be escalated. Nothing changed."); }
+    finally { setBusy(false); }
+  };
+
+  return <section className="card-3d outline-glass rounded-xl bg-card p-5">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+      <div className="min-w-0">
+        <h2 className="font-display text-base font-bold">Past the reply target</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Reply targets: {Object.entries(SLA_HOURS).map(([priority, hours]) => `${priority} ${hours}h`).join(" · ")}. {overdue.length} overdue · {dueSoon.length} due soon.</p>
+      </div>
+      {can("manageReview") && toEscalate.length > 0 && <Button size="sm" disabled={busy} onClick={() => void escalate()}><TriangleAlert/>Escalate {toEscalate.length}</Button>}
+    </div>
+    {!can("manageReview") && <div className="mt-3"><RoleNotice>{role} access can view escalations but cannot change them.</RoleNotice></div>}
+    {message && <p className="mt-3 text-[11px] text-muted-foreground">{message}</p>}
+    <div className="mt-4 grid gap-2">
+      {[...overdue, ...dueSoon].slice(0, 12).map((review) => {
+        const sla = slaInfo(review);
+        return <button key={review.id} onClick={() => openReview(review)} className="grid gap-2 rounded-lg border p-3 text-left transition-colors hover:bg-surface sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <span className="min-w-0"><strong className="block truncate text-sm">{review.name} · {review.rating}★</strong><span className="block truncate text-xs text-muted-foreground">{review.source} · {review.location} · {formatDate(review.reviewDate)}</span></span>
+          <span className="flex flex-wrap gap-1.5"><StatusPill tone={priorityTone(review.priority)}>{review.priority}</StatusPill><StatusPill tone={sla.tone}>{sla.label}</StatusPill><StatusPill tone={statusTone(review.status)}>{review.status}</StatusPill></span>
+        </button>;
+      })}
+      {!overdue.length && !dueSoon.length && <p className="text-xs text-muted-foreground">Every open review is inside its reply target.</p>}
+    </div>
+  </section>;
+}
+
 /* ----------------------------------------------------------------- modules --- */
 
 type ModuleKey = Exclude<PageKey, "Overview" | "Reviews" | "Response Center" | "Improve">;
@@ -1627,6 +1665,8 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
               ? <div className="grid gap-5"><ProfilePanel/><WorkspaceSettingsPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
               : page === "Locations"
                 ? <div className="grid gap-5"><BusinessesPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
+                : page === "Alerts"
+                  ? <div className="grid gap-5"><EscalationPanel reviews={visible.reviews} role={role} can={can} updateReviews={data.updateReviews} openReview={openReview}/><AssignmentRulesPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
                 : <ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/>;
 
   const resolvedState: PreviewState = data.dataStatus === "loading" ? "Loading" : data.dataStatus === "error" ? "Error" : "Live data";

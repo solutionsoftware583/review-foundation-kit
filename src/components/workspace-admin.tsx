@@ -3,6 +3,7 @@ import { Copy, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { LOCALES, TIMEZONES, formatMoment } from "@/lib/format";
 import { ROLES, WORKSPACE_SLUG, useSession, type Business, type Role } from "@/lib/session";
+import { SLA_HOURS } from "@/lib/review-sla";
 import { Button } from "@/components/ui/button";
 
 const CARD = "card-3d outline-glass rounded-xl bg-card p-5";
@@ -344,6 +345,99 @@ export function BusinessesPanel({ role }: { role: Role }) {
         </div>
       </div>)}
       {!businesses.length && <p className="text-xs text-muted-foreground">No locations yet.</p>}
+    </div>
+  </section>;
+}
+
+type AssignmentRule = {
+  id: string; name: string; position: number; match_source: string | null; match_location: string | null;
+  min_rating: number | null; max_rating: number | null; assignee: string; is_active: boolean;
+};
+
+const RULE_SOURCES = ["Any", "Google", "Trustpilot", "Facebook", "Tripadvisor", "Internal"];
+const RULE_PEOPLE = ["Riya Sharma", "Arjun Mehta", "Chloe Dubois", "Marcus Hale"];
+
+export function AssignmentRulesPanel({ role }: { role: Role }) {
+  const { businesses, user, actorName } = useSession();
+  const [rules, setRules] = useState<AssignmentRule[]>([]);
+  const [name, setName] = useState("");
+  const [source, setSource] = useState("Any");
+  const [location, setLocation] = useState("Any");
+  const [minRating, setMinRating] = useState("1");
+  const [maxRating, setMaxRating] = useState("5");
+  const [assignee, setAssignee] = useState(RULE_PEOPLE[0]!);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const result = await supabase.from("reviewvala_assignment_rules")
+      .select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active")
+      .eq("workspace_slug", WORKSPACE_SLUG).order("position", { ascending: true });
+    if (result.error) { setError(result.error.message); return; }
+    setRules((result.data ?? []) as AssignmentRule[]);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const add = async () => {
+    if (!user) return;
+    setBusy(true); setError("");
+    const result = await supabase.from("reviewvala_assignment_rules").insert({
+      workspace_slug: WORKSPACE_SLUG, name: name.trim() || `${assignee} rule`,
+      position: rules.length, match_source: source === "Any" ? null : source,
+      match_location: location === "Any" ? null : location,
+      min_rating: Number(minRating), max_rating: Number(maxRating), assignee, is_active: true,
+    });
+    setBusy(false);
+    if (result.error) { setError(result.error.message); return; }
+    await logAudit({ actorUserId: user.id, actorName, action: "Assignment rule created", target: name.trim() || assignee });
+    setName("");
+    await load();
+  };
+
+  const toggle = async (rule: AssignmentRule) => {
+    setBusy(true);
+    const result = await supabase.from("reviewvala_assignment_rules").update({ is_active: !rule.is_active }).eq("id", rule.id);
+    setBusy(false);
+    if (result.error) { setError(result.error.message); return; }
+    await load();
+  };
+
+  const remove = async (rule: AssignmentRule) => {
+    setBusy(true);
+    const result = await supabase.from("reviewvala_assignment_rules").delete().eq("id", rule.id);
+    setBusy(false);
+    if (result.error) { setError(result.error.message); return; }
+    if (user) await logAudit({ actorUserId: user.id, actorName, action: "Assignment rule removed", target: rule.name });
+    await load();
+  };
+
+  return <section className={CARD}>
+    <h2 className="font-display text-base font-bold text-card-foreground">Assignment rules</h2>
+    <p className="mt-1 text-xs text-muted-foreground">New reviews without an owner are assigned by the first matching rule. Reply targets: {Object.entries(SLA_HOURS).map(([priority, hours]) => `${priority} ${hours}h`).join(" · ")}.</p>
+    {role === "Admin" ? <>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Row label="Rule name"><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Low ratings to Riya" className={INPUT}/></Row>
+        <Row label="Platform"><select value={source} onChange={(event) => setSource(event.target.value)} className={SELECT}>{RULE_SOURCES.map((item) => <option key={item}>{item}</option>)}</select></Row>
+        <Row label="Location"><select value={location} onChange={(event) => setLocation(event.target.value)} className={SELECT}>{["Any", ...businesses.map((business) => business.location_label)].map((item) => <option key={item}>{item}</option>)}</select></Row>
+        <Row label="Rating from"><select value={minRating} onChange={(event) => setMinRating(event.target.value)} className={SELECT}>{["1","2","3","4","5"].map((item) => <option key={item}>{item}</option>)}</select></Row>
+        <Row label="Rating to"><select value={maxRating} onChange={(event) => setMaxRating(event.target.value)} className={SELECT}>{["1","2","3","4","5"].map((item) => <option key={item}>{item}</option>)}</select></Row>
+        <Row label="Assign to"><select value={assignee} onChange={(event) => setAssignee(event.target.value)} className={SELECT}>{RULE_PEOPLE.map((item) => <option key={item}>{item}</option>)}</select></Row>
+      </div>
+      <Button className="mt-4" size="sm" disabled={busy} onClick={() => void add()}><Plus/>Add rule</Button>
+    </> : <p className="mt-3 text-xs text-muted-foreground">{role} access can view rules but only an Admin can change them.</p>}
+    <Notice message={error} tone="bad"/>
+    <div className="mt-5 grid gap-2">
+      {rules.map((rule, index) => <div key={rule.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-card-foreground">{index + 1}. {rule.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{rule.match_source ?? "Any platform"} · {rule.match_location ?? "Any location"} · {rule.min_rating ?? 1}–{rule.max_rating ?? 5}★ → {rule.assignee}{rule.is_active ? "" : " · paused"}</p>
+        </div>
+        {role === "Admin" && <div className="flex gap-2">
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void toggle(rule)}>{rule.is_active ? "Pause" : "Activate"}</Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove(rule)}><Trash2/>Remove</Button>
+        </div>}
+      </div>)}
+      {!rules.length && <p className="text-xs text-muted-foreground">No rules yet — new reviews stay unassigned until someone picks them up.</p>}
     </div>
   </section>;
 }
