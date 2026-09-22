@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      reviewvala_assignment_rules: {
+        Row: {
+          assignee: string
+          created_at: string
+          id: string
+          is_active: boolean
+          match_location: string
+          match_source: string
+          max_rating: number
+          min_rating: number
+          name: string
+          position: number
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          assignee: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          match_location?: string
+          match_source?: string
+          max_rating?: number
+          min_rating?: number
+          name: string
+          position?: number
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          assignee?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          match_location?: string
+          match_source?: string
+          max_rating?: number
+          min_rating?: number
+          name?: string
+          position?: number
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
       reviewvala_audit_log: {
         Row: {
           action: string
@@ -391,10 +436,14 @@ export type Database = {
       }
       reviewvala_reviews: {
         Row: {
+          archived_at: string | null
           assignee: string | null
           created_at: string
+          external_id: string | null
+          first_response_at: string | null
           id: string
           location: string
+          merged_into: string | null
           priority: string
           rating: number
           review_date: string
@@ -403,16 +452,21 @@ export type Database = {
           reviewer_name: string
           sentiment: string
           source: string
+          source_url: string | null
           status: string
           time_label: string
           updated_at: string
           workspace_slug: string
         }
         Insert: {
+          archived_at?: string | null
           assignee?: string | null
           created_at?: string
+          external_id?: string | null
+          first_response_at?: string | null
           id?: string
           location: string
+          merged_into?: string | null
           priority?: string
           rating: number
           review_date?: string
@@ -421,16 +475,21 @@ export type Database = {
           reviewer_name: string
           sentiment?: string
           source: string
+          source_url?: string | null
           status?: string
           time_label: string
           updated_at?: string
           workspace_slug?: string
         }
         Update: {
+          archived_at?: string | null
           assignee?: string | null
           created_at?: string
+          external_id?: string | null
+          first_response_at?: string | null
           id?: string
           location?: string
+          merged_into?: string | null
           priority?: string
           rating?: number
           review_date?: string
@@ -439,8 +498,53 @@ export type Database = {
           reviewer_name?: string
           sentiment?: string
           source?: string
+          source_url?: string | null
           status?: string
           time_label?: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_reviews_merged_into_fkey"
+            columns: ["merged_into"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reviewvala_saved_views: {
+        Row: {
+          created_at: string
+          filters: Json
+          id: string
+          is_shared: boolean
+          name: string
+          owner_name: string
+          owner_user_id: string
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          created_at?: string
+          filters?: Json
+          id?: string
+          is_shared?: boolean
+          name: string
+          owner_name?: string
+          owner_user_id: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          created_at?: string
+          filters?: Json
+          id?: string
+          is_shared?: boolean
+          name?: string
+          owner_name?: string
+          owner_user_id?: string
           updated_at?: string
           workspace_slug?: string
         }
