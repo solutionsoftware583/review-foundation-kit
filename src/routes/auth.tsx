@@ -70,7 +70,7 @@ function AuthPage() {
         await navigate({ to: "/", replace: true });
         return;
       }
-      const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const result = await supabase.auth.signInWithPassword({ email: toLoginEmail(email), password });
       if (result.error) throw result.error;
       await navigate({ to: "/", replace: true });
     } catch (caught) {
