@@ -10,11 +10,55 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AlertsRouteImport } from './routes/alerts'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as ImproveRouteImport } from './routes/improve'
+import { Route as LocationsRouteImport } from './routes/locations'
+import { Route as RatingsRouteImport } from './routes/ratings'
+import { Route as ReportsRouteImport } from './routes/reports'
+import { Route as ResponseCenterRouteImport } from './routes/response-center'
 import { Route as ReviewsRouteImport } from './routes/reviews'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as TeamRouteImport } from './routes/team'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AlertsRoute = AlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ImproveRoute = ImproveRouteImport.update({
+  id: '/improve',
+  path: '/improve',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LocationsRoute = LocationsRouteImport.update({
+  id: '/locations',
+  path: '/locations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RatingsRoute = RatingsRouteImport.update({
+  id: '/ratings',
+  path: '/ratings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResponseCenterRoute = ResponseCenterRouteImport.update({
+  id: '/response-center',
+  path: '/response-center',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReviewsRoute = ReviewsRouteImport.update({
@@ -22,31 +66,111 @@ const ReviewsRoute = ReviewsRouteImport.update({
   path: '/reviews',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
+  '/analytics': typeof AnalyticsRoute
+  '/improve': typeof ImproveRoute
+  '/locations': typeof LocationsRoute
+  '/ratings': typeof RatingsRoute
+  '/reports': typeof ReportsRoute
+  '/response-center': typeof ResponseCenterRoute
   '/reviews': typeof ReviewsRoute
+  '/settings': typeof SettingsRoute
+  '/team': typeof TeamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
+  '/analytics': typeof AnalyticsRoute
+  '/improve': typeof ImproveRoute
+  '/locations': typeof LocationsRoute
+  '/ratings': typeof RatingsRoute
+  '/reports': typeof ReportsRoute
+  '/response-center': typeof ResponseCenterRoute
   '/reviews': typeof ReviewsRoute
+  '/settings': typeof SettingsRoute
+  '/team': typeof TeamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/alerts': typeof AlertsRoute
+  '/analytics': typeof AnalyticsRoute
+  '/improve': typeof ImproveRoute
+  '/locations': typeof LocationsRoute
+  '/ratings': typeof RatingsRoute
+  '/reports': typeof ReportsRoute
+  '/response-center': typeof ResponseCenterRoute
   '/reviews': typeof ReviewsRoute
+  '/settings': typeof SettingsRoute
+  '/team': typeof TeamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/reviews'
+  fullPaths:
+    | '/'
+    | '/alerts'
+    | '/analytics'
+    | '/improve'
+    | '/locations'
+    | '/ratings'
+    | '/reports'
+    | '/response-center'
+    | '/reviews'
+    | '/settings'
+    | '/team'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/reviews'
-  id: '__root__' | '/' | '/reviews'
+  to:
+    | '/'
+    | '/alerts'
+    | '/analytics'
+    | '/improve'
+    | '/locations'
+    | '/ratings'
+    | '/reports'
+    | '/response-center'
+    | '/reviews'
+    | '/settings'
+    | '/team'
+  id:
+    | '__root__'
+    | '/'
+    | '/alerts'
+    | '/analytics'
+    | '/improve'
+    | '/locations'
+    | '/ratings'
+    | '/reports'
+    | '/response-center'
+    | '/reviews'
+    | '/settings'
+    | '/team'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AlertsRoute: typeof AlertsRoute
+  AnalyticsRoute: typeof AnalyticsRoute
+  ImproveRoute: typeof ImproveRoute
+  LocationsRoute: typeof LocationsRoute
+  RatingsRoute: typeof RatingsRoute
+  ReportsRoute: typeof ReportsRoute
+  ResponseCenterRoute: typeof ResponseCenterRoute
   ReviewsRoute: typeof ReviewsRoute
+  SettingsRoute: typeof SettingsRoute
+  TeamRoute: typeof TeamRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,6 +182,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/alerts': {
+      id: '/alerts'
+      path: '/alerts'
+      fullPath: '/alerts'
+      preLoaderRoute: typeof AlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/improve': {
+      id: '/improve'
+      path: '/improve'
+      fullPath: '/improve'
+      preLoaderRoute: typeof ImproveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/locations': {
+      id: '/locations'
+      path: '/locations'
+      fullPath: '/locations'
+      preLoaderRoute: typeof LocationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ratings': {
+      id: '/ratings'
+      path: '/ratings'
+      fullPath: '/ratings'
+      preLoaderRoute: typeof RatingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/response-center': {
+      id: '/response-center'
+      path: '/response-center'
+      fullPath: '/response-center'
+      preLoaderRoute: typeof ResponseCenterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reviews': {
       id: '/reviews'
       path: '/reviews'
@@ -65,12 +238,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReviewsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AlertsRoute: AlertsRoute,
+  AnalyticsRoute: AnalyticsRoute,
+  ImproveRoute: ImproveRoute,
+  LocationsRoute: LocationsRoute,
+  RatingsRoute: RatingsRoute,
+  ReportsRoute: ReportsRoute,
+  ResponseCenterRoute: ResponseCenterRoute,
   ReviewsRoute: ReviewsRoute,
+  SettingsRoute: SettingsRoute,
+  TeamRoute: TeamRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
