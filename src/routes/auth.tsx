@@ -4,6 +4,7 @@ import { ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { INVITE_STORAGE_KEY } from "@/lib/session";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -39,6 +40,19 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [invited, setInvited] = useState(false);
+
+  // An invite link (/auth?invite=CODE) is stored and redeemed once the account exists.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("invite");
+    if (code) {
+      window.localStorage.setItem(INVITE_STORAGE_KEY, code);
+      setInvited(true);
+      setMode("signup");
+    } else if (window.localStorage.getItem(INVITE_STORAGE_KEY)) {
+      setInvited(true);
+    }
+  }, []);
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
@@ -100,6 +114,7 @@ function AuthPage() {
             : "The first account becomes the workspace Admin. Later accounts need Admin approval."}
         </p>
 
+        {invited && <p className="mb-4 rounded-md bg-brand-soft p-3 text-xs font-semibold text-brand">You have been invited to this workspace. Create your account to join.</p>}
         <form className="mt-6 grid gap-3" onSubmit={submit}>
           {mode === "signup" && (
             <>
