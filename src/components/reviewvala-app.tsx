@@ -42,6 +42,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { analyzeReviewText } from "@/lib/insights.functions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
+import { useSession, type Member, type Permission, type Role, ROLES } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Improve" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
@@ -49,7 +50,6 @@ type PreviewState = "Live data" | "Loading" | "Empty" | "Error";
 type BadgeKey = "needsReply" | "pendingResponses" | "alerts";
 
 const WORKSPACE = "northstar-group";
-const ACTOR_NAME = "Riya Sharma";
 const TEAM_MEMBERS = ["Riya Sharma", "Arjun Mehta", "Chloe Dubois", "Marcus Hale"];
 const REVIEW_STATUSES = ["Needs reply", "Assigned", "Escalated", "Replied"];
 const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
@@ -58,36 +58,13 @@ const SOURCES = ["Google", "Trustpilot", "Facebook", "Tripadvisor", "Internal"];
 
 /* ---------------------------------------------------------------- roles --- */
 
-type Role = "Admin" | "Manager" | "Responder" | "Viewer";
-type Permission = "manageReview" | "draftResponse" | "approveResponse" | "publishResponse" | "addNote" | "createReview";
-
-const ROLES: Role[] = ["Admin", "Manager", "Responder", "Viewer"];
 const ROLE_SUMMARY: Record<Role, string> = {
   Admin: "Full access to every workspace action.",
   Manager: "Assign, approve, publish and manage locations.",
   Responder: "Draft responses and submit them for approval.",
   Viewer: "Read-only access across the workspace.",
 };
-const PERMISSIONS: Record<Role, Permission[]> = {
-  Admin: ["manageReview", "draftResponse", "approveResponse", "publishResponse", "addNote", "createReview"],
-  Manager: ["manageReview", "draftResponse", "approveResponse", "publishResponse", "addNote", "createReview"],
-  Responder: ["draftResponse", "addNote", "createReview"],
-  Viewer: [],
-};
 
-function useRole() {
-  const [role, setRole] = useState<Role>("Admin");
-  useEffect(() => {
-    const stored = window.localStorage.getItem("reviewvala-role");
-    if (stored && (ROLES as string[]).includes(stored)) setRole(stored as Role);
-  }, []);
-  const change = useCallback((next: Role) => {
-    setRole(next);
-    window.localStorage.setItem("reviewvala-role", next);
-  }, []);
-  const can = useCallback((permission: Permission) => PERMISSIONS[role].includes(permission), [role]);
-  return { role, setRole: change, can };
-}
 
 /* ------------------------------------------------------------ navigation --- */
 
@@ -184,7 +161,7 @@ function initialsOf(name: string) {
   return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "RV";
 }
 
-function useWorkspaceData(role: Role) {
+function useWorkspaceData(role: Role, actorName: string) {
   const [workspaceReviews, setWorkspaceReviews] = useState<Review[]>([]);
   const [responses, setResponses] = useState<ResponseRecord[]>([]);
   const [events, setEvents] = useState<ResponseEvent[]>([]);
@@ -226,11 +203,11 @@ function useWorkspaceData(role: Role) {
 
   const logEvent = useCallback(async (responseId: string, action: string, fromStatus: string | null, toStatus: string, note?: string) => {
     const result = await supabase.from("reviewvala_response_events").insert({
-      response_id: responseId, action, actor_name: ACTOR_NAME, actor_role: role, from_status: fromStatus, to_status: toStatus, note: note ?? null,
+      response_id: responseId, action, actor_name: actorName, actor_role: role, from_status: fromStatus, to_status: toStatus, note: note ?? null,
     }).select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").single();
     if (result.error) throw result.error;
     setEvents((current) => [...current, result.data]);
-  }, [role]);
+  }, [role, actorName]);
 
   const applyResponse = useCallback((record: ResponseRecord) => {
     setResponses((current) => [record, ...current.filter((item) => item.id !== record.id)]);
@@ -245,7 +222,7 @@ function useWorkspaceData(role: Role) {
       await logEvent(existing.id, "Draft saved", existing.response_status, "Draft");
       return result.data;
     }
-    const result = await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft", author_name: ACTOR_NAME }).select(RESPONSE_COLUMNS).single();
+    const result = await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft", author_name: actorName }).select(RESPONSE_COLUMNS).single();
     if (result.error) throw result.error;
     applyResponse(result.data);
     await logEvent(result.data.id, "Response created", null, "Draft");
@@ -286,7 +263,7 @@ function useWorkspaceData(role: Role) {
   }, []);
 
   const addNote = useCallback(async (reviewId: string, noteText: string) => {
-    const result = await supabase.from("reviewvala_review_notes").insert({ review_id: reviewId, note_text: noteText, author_name: ACTOR_NAME }).select("id, review_id, note_text, author_name, created_at").single();
+    const result = await supabase.from("reviewvala_review_notes").insert({ review_id: reviewId, note_text: noteText, author_name: actorName }).select("id, review_id, note_text, author_name, created_at").single();
     if (result.error) throw result.error;
     setNotes((current) => [result.data, ...current]);
     return result.data;
@@ -505,7 +482,7 @@ function RoleNotice({ children }: { children: React.ReactNode }) {
 
 /* ------------------------------------------------------------------ chrome --- */
 
-function Sidebar({ page, setPage, open, close, derived, role, setRole }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived; role: Role; setRole: (role: Role) => void }) {
+function Sidebar({ page, setPage, open, close, derived, role, actorName, memberEmail, onSignOut }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived; role: Role; actorName: string; memberEmail: string; onSignOut: () => void }) {
   const badges: Record<BadgeKey, number> = { needsReply: derived.needsReply, pendingResponses: derived.pendingResponses, alerts: derived.alerts.length };
   return <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-transform duration-300 lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
     <div className="flex items-center justify-between px-2 pb-5"><BrandMark/><IconButton label="Close navigation" onClick={close} className="lg:hidden"><X/></IconButton></div>
@@ -517,14 +494,16 @@ function Sidebar({ page, setPage, open, close, derived, role, setRole }: { page:
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-sidebar to-transparent"/>
     </div>
     <div className="border-t border-sidebar-border pt-3">
-      <button onClick={() => { setPage("Team"); close(); }} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-sidebar-hover"><span className="icon-3d size-8 shrink-0 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">RS</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{ACTOR_NAME}</span><span className="block truncate text-[10px] text-sidebar-muted">{role === "Admin" ? "Workspace owner" : `${role} access`}</span></span><MoreHorizontal className="size-4 text-sidebar-muted"/></button>
-      <label className="mt-2 grid gap-1 px-2 text-[9px] font-bold uppercase tracking-wider text-sidebar-muted">Active role
-        <select value={role} onChange={(event) => setRole(event.target.value as Role)} className="h-8 rounded-md border border-sidebar-border bg-sidebar-elevated px-2 text-[11px] font-semibold normal-case tracking-normal text-sidebar-foreground">{ROLES.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-      </label>
+      <button onClick={() => { setPage("Team"); close(); }} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-sidebar-hover"><span className="icon-3d size-8 shrink-0 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{initialsOf(actorName)}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{actorName}</span><span className="block truncate text-[10px] text-sidebar-muted">{memberEmail || `${role} access`}</span></span><MoreHorizontal className="size-4 text-sidebar-muted"/></button>
+      <div className="mt-2 grid gap-1 px-2">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-sidebar-muted">Role · {role}</span>
+        <button onClick={onSignOut} className="flex h-8 items-center justify-center gap-2 rounded-md border border-sidebar-border bg-sidebar-elevated text-[11px] font-semibold text-sidebar-foreground transition-colors hover:bg-sidebar-hover"><Lock className="size-3"/>Sign out</button>
+      </div>
       <div className="mt-2 flex items-center gap-1.5 px-2 text-[9px] text-sidebar-muted"><ShieldCheck className="size-3 text-brand-bright"/>Software Vala™ — The Name of Trust</div>
     </div>
   </aside>;
 }
+
 
 function Topbar({ onMenu, onSearch, onNotifications, alertCount, role }: { onMenu: () => void; onSearch: () => void; onNotifications: () => void; alertCount: number; role: Role }) {
   return <header className="glass sticky top-0 z-30 grid h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-none border-x-0 border-t-0 px-4 shadow-none lg:px-7"><IconButton label="Open navigation" onClick={onMenu} className="lg:hidden"><Menu/></IconButton><button onClick={onSearch} className="inset-3d flex h-9 min-w-0 max-w-xl items-center gap-2 rounded-md border bg-surface px-3 text-sm text-muted-foreground transition-colors hover:border-brand/40"><Search className="size-4 shrink-0"/><span className="truncate">Search reviews, people, or locations…</span><kbd className="ml-auto hidden shrink-0 rounded border bg-background px-1.5 py-0.5 text-[10px] sm:inline">⌘ K</kbd></button><div className="flex shrink-0 items-center gap-1"><span className="hidden sm:inline"><StatusPill tone="brand">{role}</StatusPill></span><IconButton label="Help center"><CircleHelp/></IconButton><div className="relative"><IconButton label="Notifications" onClick={onNotifications}><Bell/></IconButton>{alertCount > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive ring-2 ring-background"/>}</div></div></header>;
@@ -726,7 +705,7 @@ type ReviewFilters = { query: string; status: string; source: string; rating: st
 
 const EMPTY_FILTERS: ReviewFilters = { query: "", status: "All", source: "All", rating: "All", sentiment: "All", location: "All", priority: "All", assignment: "All", from: "", sort: "Newest" };
 
-function applyFilters(reviews: Review[], filters: ReviewFilters) {
+function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: string) {
   const query = filters.query.trim().toLowerCase();
   const filtered = reviews.filter((review) => {
     if (query && ![review.name, review.text, review.location, review.source, review.status, review.assignee ?? ""].join(" ").toLowerCase().includes(query)) return false;
@@ -736,7 +715,7 @@ function applyFilters(reviews: Review[], filters: ReviewFilters) {
     if (filters.sentiment !== "All" && review.sentiment !== filters.sentiment) return false;
     if (filters.location !== "All" && review.location !== filters.location) return false;
     if (filters.priority !== "All" && review.priority !== filters.priority) return false;
-    if (filters.assignment === "Assigned to me" && review.assignee !== ACTOR_NAME) return false;
+    if (filters.assignment === "Assigned to me" && review.assignee !== actorName) return false;
     if (filters.assignment === "Unassigned" && review.assignee) return false;
     if (filters.from && review.reviewDate < filters.from) return false;
     return true;
@@ -776,6 +755,7 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
   addNote: (reviewId: string, note: string) => Promise<ReviewNote>;
   createReview: (input: CreateReviewInput) => Promise<Review>;
 }) {
+  const { actorName } = useSession();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [saving, setSaving] = useState(false);
@@ -785,7 +765,7 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ReviewFilters>(EMPTY_FILTERS);
 
-  const visible = useMemo(() => applyFilters(reviews, filters), [reviews, filters]);
+  const visible = useMemo(() => applyFilters(reviews, filters, actorName), [reviews, filters, actorName]);
   const selected = reviews.find((review) => review.id === selectedId) ?? visible[0] ?? reviews[0] ?? null;
 
   useEffect(() => { if (focusId && reviews.some((review) => review.id === focusId)) setSelectedId(focusId); }, [focusId, reviews]);
@@ -1131,7 +1111,7 @@ function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role;
   const run = async () => {
     setError(null); setBusy(true);
     try {
-      await analyzeReviewText({ data: { text: review.text, reviewId: review.id, author: ACTOR_NAME } });
+      await analyzeReviewText({ data: { text: review.text, reviewId: review.id } });
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The analysis could not be completed.");
@@ -1212,7 +1192,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
     setError(null);
     setBusy(true);
     try {
-      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null, author: ACTOR_NAME } });
+      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null } });
       setText("");
       setLinkedId("");
       await load();
@@ -1263,7 +1243,78 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
   </div>;
 }
 
+/* ------------------------------------------------------------- membership --- */
+
+function PendingAccess({ email, status, onRecheck, onSignOut }: { email: string; status: string; onRecheck: () => void; onSignOut: () => void }) {
+  return <div className="grid min-h-screen place-items-center bg-background px-4">
+    <div className="card-3d outline-glass w-full max-w-md rounded-xl bg-card p-7 text-center">
+      <span className="icon-3d mx-auto size-11 bg-brand-soft text-brand"><ShieldCheck className="size-5"/></span>
+      <h1 className="mt-4 font-display text-xl font-bold text-card-foreground">{status === "Suspended" ? "Access suspended" : "Waiting for approval"}</h1>
+      <p className="mt-2 text-sm text-muted-foreground">{status === "Suspended" ? "An administrator has suspended this account for the Northstar Group workspace." : "Your account is registered. A workspace administrator has to approve it before the review data becomes visible."}</p>
+      {email && <p className="mt-3 text-xs text-muted-foreground">Signed in as <span className="font-semibold text-card-foreground">{email}</span></p>}
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+        <button onClick={onRecheck} className="h-9 rounded-md bg-brand px-4 text-xs font-semibold text-brand-foreground">Check again</button>
+        <button onClick={onSignOut} className="h-9 rounded-md border px-4 text-xs font-semibold text-foreground">Sign out</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function MembersPanel({ role, currentUserId }: { role: Role; currentUserId: string }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setStatus("loading");
+    const result = await supabase.from("reviewvala_members").select("id, user_id, workspace_slug, email, full_name, role, status, created_at").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true });
+    if (result.error) { setStatus("error"); return; }
+    setMembers(result.data as Member[]);
+    setStatus("ready");
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const update = async (id: string, patch: { role?: Role; status?: string }) => {
+    setBusy(id);
+    const result = await supabase.from("reviewvala_members").update(patch).eq("id", id).select("id, user_id, workspace_slug, email, full_name, role, status, created_at").single();
+    setBusy(null);
+    if (result.error) return;
+    setMembers((current) => current.map((item) => (item.id === id ? (result.data as Member) : item)));
+  };
+
+  if (role !== "Admin") {
+    return <section className="card-3d outline-glass rounded-xl bg-card p-5"><h2 className="font-display text-base font-bold text-card-foreground">Workspace members</h2><p className="mt-2 text-sm text-muted-foreground">Only administrators can approve members or change roles. Your current role is {role}.</p></section>;
+  }
+
+  const pending = members.filter((item) => item.status === "Pending");
+
+  return <section className="card-3d outline-glass rounded-xl bg-card p-5">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><h2 className="font-display text-base font-bold text-card-foreground">Workspace members</h2><p className="text-xs text-muted-foreground">{members.length} account{members.length === 1 ? "" : "s"} · {pending.length} awaiting approval</p></div>
+      <button onClick={() => void load()} className="h-8 rounded-md border px-3 text-xs font-semibold text-foreground">Refresh</button>
+    </div>
+    {status === "loading" && <p className="mt-4 text-sm text-muted-foreground">Loading members…</p>}
+    {status === "error" && <p className="mt-4 text-sm text-destructive">Members could not be loaded.</p>}
+    {status === "ready" && <div className="mt-4 grid gap-2">
+      {members.map((item) => <div key={item.id} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="icon-3d size-9 shrink-0 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{initialsOf(item.full_name || item.email)}</span>
+          <div className="min-w-0"><p className="truncate text-sm font-semibold text-card-foreground">{item.full_name || item.email}{item.user_id === currentUserId && <span className="ml-2 text-[10px] font-medium text-muted-foreground">You</span>}</p><p className="truncate text-xs text-muted-foreground">{item.email}</p></div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill tone={item.status === "Active" ? "good" : item.status === "Suspended" ? "bad" : "warn"}>{item.status}</StatusPill>
+          <select value={item.role} disabled={busy === item.id || item.user_id === currentUserId} onChange={(event) => void update(item.id, { role: event.target.value as Role })} className="h-8 rounded-md border bg-surface px-2 text-xs font-semibold text-foreground">{ROLES.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+          {item.status !== "Active" && <button disabled={busy === item.id} onClick={() => void update(item.id, { status: "Active" })} className="h-8 rounded-md bg-brand px-3 text-xs font-semibold text-brand-foreground">Approve</button>}
+          {item.status === "Active" && item.user_id !== currentUserId && <button disabled={busy === item.id} onClick={() => void update(item.id, { status: "Suspended" })} className="h-8 rounded-md border px-3 text-xs font-semibold text-foreground">Suspend</button>}
+        </div>
+      </div>)}
+    </div>}
+  </section>;
+}
+
 /* -------------------------------------------------------------------- app --- */
+
 
 export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId?: string | null }) {
   const navigate = useNavigate();
@@ -1271,8 +1322,9 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   const [menu, setMenu] = useState(false);
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
-  const { role, setRole, can } = useRole();
-  const data = useWorkspaceData(role);
+  const session = useSession();
+  const { role, can, actorName, member } = session;
+  const data = useWorkspaceData(role, actorName);
   const derived = useMemo(() => deriveWorkspace(data.reviews, data.responses, data.snapshots), [data.reviews, data.responses, data.snapshots]);
 
   useEffect(() => {
@@ -1286,6 +1338,11 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
 
   const openReview = (review: Review) => { void navigate({ to: "/reviews", search: { review: review.id } }); };
 
+  const handleSignOut = async () => {
+    await session.signOut();
+    await navigate({ to: "/auth", replace: true });
+  };
+
   const content = page === "Overview"
     ? <Overview setPage={setPage} reviews={data.reviews} responses={data.responses} derived={derived}/>
     : page === "Reviews"
@@ -1294,12 +1351,23 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
         ? <ResponseCenter reviews={data.reviews} responses={data.responses} events={data.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
         : page === "Improve"
           ? <ImprovePage reviews={data.reviews} role={role} can={can}/>
-          : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
+          : page === "Team"
+            ? <div className="grid gap-5"><MembersPanel role={role} currentUserId={member?.user_id ?? ""}/><ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/></div>
+            : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
 
   const resolvedState: PreviewState = data.dataStatus === "loading" ? "Loading" : data.dataStatus === "error" ? "Error" : "Live data";
 
+  if (session.loading) {
+    return <div className="grid min-h-screen place-items-center bg-background px-4"><p className="text-sm text-muted-foreground">Checking your workspace access…</p></div>;
+  }
+
+  if (member?.status !== "Active") {
+    return <PendingAccess email={member?.email ?? ""} status={member?.status ?? "Pending"} onRecheck={() => void session.refreshMember()} onSignOut={() => void handleSignOut()}/>;
+  }
+
+
   return <TooltipProvider delayDuration={250}><div className="min-h-screen bg-background text-foreground">
-    <Sidebar page={page} setPage={setPage} open={menu} close={() => setMenu(false)} derived={derived} role={role} setRole={setRole}/>
+    <Sidebar page={page} setPage={setPage} open={menu} close={() => setMenu(false)} derived={derived} role={role} actorName={actorName} memberEmail={member?.email ?? ""} onSignOut={() => void handleSignOut()}/>
     {menu && <button aria-label="Close navigation" className="fixed inset-0 z-30 bg-overlay lg:hidden" onClick={() => setMenu(false)}/>}
     <div className="lg:pl-[248px]">
       <Topbar onMenu={() => setMenu(true)} onSearch={() => setSearch(true)} onNotifications={() => setNotifications(true)} alertCount={derived.alerts.length} role={role}/>

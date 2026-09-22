@@ -73,6 +73,42 @@ export type Database = {
           },
         ]
       }
+      reviewvala_members: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["reviewvala_role"]
+          status: string
+          updated_at: string
+          user_id: string
+          workspace_slug: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name?: string
+          id?: string
+          role?: Database["public"]["Enums"]["reviewvala_role"]
+          status?: string
+          updated_at?: string
+          user_id: string
+          workspace_slug?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          role?: Database["public"]["Enums"]["reviewvala_role"]
+          status?: string
+          updated_at?: string
+          user_id?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
       reviewvala_rating_snapshots: {
         Row: {
           channel: string
@@ -276,10 +312,45 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      reviewvala_can_write: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: boolean
+      }
+      reviewvala_claim_membership: {
+        Args: { _workspace?: string }
+        Returns: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["reviewvala_role"]
+          status: string
+          updated_at: string
+          user_id: string
+          workspace_slug: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reviewvala_members"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reviewvala_is_admin: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: boolean
+      }
+      reviewvala_is_member: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: boolean
+      }
+      reviewvala_member_role: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: Database["public"]["Enums"]["reviewvala_role"]
+      }
     }
     Enums: {
-      [_ in never]: never
+      reviewvala_role: "Admin" | "Manager" | "Responder" | "Viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -406,6 +477,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      reviewvala_role: ["Admin", "Manager", "Responder", "Viewer"],
+    },
   },
 } as const

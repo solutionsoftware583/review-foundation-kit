@@ -9,118 +9,135 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AlertsRouteImport } from './routes/alerts'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
-import { Route as ImproveRouteImport } from './routes/improve'
-import { Route as LocationsRouteImport } from './routes/locations'
-import { Route as RatingsRouteImport } from './routes/ratings'
-import { Route as ReportsRouteImport } from './routes/reports'
-import { Route as ResponseCenterRouteImport } from './routes/response-center'
-import { Route as ReviewsRouteImport } from './routes/reviews'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as TeamRouteImport } from './routes/team'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedAlertsRouteImport } from './routes/_authenticated/alerts'
+import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
+import { Route as AuthenticatedImproveRouteImport } from './routes/_authenticated/improve'
+import { Route as AuthenticatedLocationsRouteImport } from './routes/_authenticated/locations'
+import { Route as AuthenticatedRatingsRouteImport } from './routes/_authenticated/ratings'
+import { Route as AuthenticatedReportsRouteImport } from './routes/_authenticated/reports'
+import { Route as AuthenticatedResponseCenterRouteImport } from './routes/_authenticated/response-center'
+import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated/reviews'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedTeamRouteImport } from './routes/_authenticated/team'
 
-const IndexRoute = IndexRouteImport.update({
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AlertsRoute = AlertsRouteImport.update({
+const AuthenticatedAlertsRoute = AuthenticatedAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
+const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const ImproveRoute = ImproveRouteImport.update({
+const AuthenticatedImproveRoute = AuthenticatedImproveRouteImport.update({
   id: '/improve',
   path: '/improve',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const LocationsRoute = LocationsRouteImport.update({
+const AuthenticatedLocationsRoute = AuthenticatedLocationsRouteImport.update({
   id: '/locations',
   path: '/locations',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const RatingsRoute = RatingsRouteImport.update({
+const AuthenticatedRatingsRoute = AuthenticatedRatingsRouteImport.update({
   id: '/ratings',
   path: '/ratings',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const ReportsRoute = ReportsRouteImport.update({
+const AuthenticatedReportsRoute = AuthenticatedReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const ResponseCenterRoute = ResponseCenterRouteImport.update({
-  id: '/response-center',
-  path: '/response-center',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ReviewsRoute = ReviewsRouteImport.update({
+const AuthenticatedResponseCenterRoute =
+  AuthenticatedResponseCenterRouteImport.update({
+    id: '/response-center',
+    path: '/response-center',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
   id: '/reviews',
   path: '/reviews',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const SettingsRoute = SettingsRouteImport.update({
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const TeamRoute = TeamRouteImport.update({
+const AuthenticatedTeamRoute = AuthenticatedTeamRouteImport.update({
   id: '/team',
   path: '/team',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/alerts': typeof AlertsRoute
-  '/analytics': typeof AnalyticsRoute
-  '/improve': typeof ImproveRoute
-  '/locations': typeof LocationsRoute
-  '/ratings': typeof RatingsRoute
-  '/reports': typeof ReportsRoute
-  '/response-center': typeof ResponseCenterRoute
-  '/reviews': typeof ReviewsRoute
-  '/settings': typeof SettingsRoute
-  '/team': typeof TeamRoute
+  '/': typeof AuthenticatedIndexRoute
+  '/auth': typeof AuthRoute
+  '/alerts': typeof AuthenticatedAlertsRoute
+  '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/improve': typeof AuthenticatedImproveRoute
+  '/locations': typeof AuthenticatedLocationsRoute
+  '/ratings': typeof AuthenticatedRatingsRoute
+  '/reports': typeof AuthenticatedReportsRoute
+  '/response-center': typeof AuthenticatedResponseCenterRoute
+  '/reviews': typeof AuthenticatedReviewsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
+  '/team': typeof AuthenticatedTeamRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/alerts': typeof AlertsRoute
-  '/analytics': typeof AnalyticsRoute
-  '/improve': typeof ImproveRoute
-  '/locations': typeof LocationsRoute
-  '/ratings': typeof RatingsRoute
-  '/reports': typeof ReportsRoute
-  '/response-center': typeof ResponseCenterRoute
-  '/reviews': typeof ReviewsRoute
-  '/settings': typeof SettingsRoute
-  '/team': typeof TeamRoute
+  '/auth': typeof AuthRoute
+  '/alerts': typeof AuthenticatedAlertsRoute
+  '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/improve': typeof AuthenticatedImproveRoute
+  '/locations': typeof AuthenticatedLocationsRoute
+  '/ratings': typeof AuthenticatedRatingsRoute
+  '/reports': typeof AuthenticatedReportsRoute
+  '/response-center': typeof AuthenticatedResponseCenterRoute
+  '/reviews': typeof AuthenticatedReviewsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
+  '/team': typeof AuthenticatedTeamRoute
+  '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/alerts': typeof AlertsRoute
-  '/analytics': typeof AnalyticsRoute
-  '/improve': typeof ImproveRoute
-  '/locations': typeof LocationsRoute
-  '/ratings': typeof RatingsRoute
-  '/reports': typeof ReportsRoute
-  '/response-center': typeof ResponseCenterRoute
-  '/reviews': typeof ReviewsRoute
-  '/settings': typeof SettingsRoute
-  '/team': typeof TeamRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/alerts': typeof AuthenticatedAlertsRoute
+  '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
+  '/_authenticated/improve': typeof AuthenticatedImproveRoute
+  '/_authenticated/locations': typeof AuthenticatedLocationsRoute
+  '/_authenticated/ratings': typeof AuthenticatedRatingsRoute
+  '/_authenticated/reports': typeof AuthenticatedReportsRoute
+  '/_authenticated/response-center': typeof AuthenticatedResponseCenterRoute
+  '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/team': typeof AuthenticatedTeamRoute
+  '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/alerts'
     | '/analytics'
     | '/improve'
@@ -133,7 +150,7 @@ export interface FileRouteTypes {
     | '/team'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
+    | '/auth'
     | '/alerts'
     | '/analytics'
     | '/improve'
@@ -144,129 +161,159 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/settings'
     | '/team'
+    | '/'
   id:
     | '__root__'
-    | '/'
-    | '/alerts'
-    | '/analytics'
-    | '/improve'
-    | '/locations'
-    | '/ratings'
-    | '/reports'
-    | '/response-center'
-    | '/reviews'
-    | '/settings'
-    | '/team'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/alerts'
+    | '/_authenticated/analytics'
+    | '/_authenticated/improve'
+    | '/_authenticated/locations'
+    | '/_authenticated/ratings'
+    | '/_authenticated/reports'
+    | '/_authenticated/response-center'
+    | '/_authenticated/reviews'
+    | '/_authenticated/settings'
+    | '/_authenticated/team'
+    | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AlertsRoute: typeof AlertsRoute
-  AnalyticsRoute: typeof AnalyticsRoute
-  ImproveRoute: typeof ImproveRoute
-  LocationsRoute: typeof LocationsRoute
-  RatingsRoute: typeof RatingsRoute
-  ReportsRoute: typeof ReportsRoute
-  ResponseCenterRoute: typeof ResponseCenterRoute
-  ReviewsRoute: typeof ReviewsRoute
-  SettingsRoute: typeof SettingsRoute
-  TeamRoute: typeof TeamRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/': {
+      id: '/_authenticated/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/alerts': {
-      id: '/alerts'
+    '/_authenticated/alerts': {
+      id: '/_authenticated/alerts'
       path: '/alerts'
       fullPath: '/alerts'
-      preLoaderRoute: typeof AlertsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedAlertsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/analytics': {
-      id: '/analytics'
+    '/_authenticated/analytics': {
+      id: '/_authenticated/analytics'
       path: '/analytics'
       fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/improve': {
-      id: '/improve'
+    '/_authenticated/improve': {
+      id: '/_authenticated/improve'
       path: '/improve'
       fullPath: '/improve'
-      preLoaderRoute: typeof ImproveRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedImproveRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/locations': {
-      id: '/locations'
+    '/_authenticated/locations': {
+      id: '/_authenticated/locations'
       path: '/locations'
       fullPath: '/locations'
-      preLoaderRoute: typeof LocationsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedLocationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/ratings': {
-      id: '/ratings'
+    '/_authenticated/ratings': {
+      id: '/_authenticated/ratings'
       path: '/ratings'
       fullPath: '/ratings'
-      preLoaderRoute: typeof RatingsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedRatingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/reports': {
-      id: '/reports'
+    '/_authenticated/reports': {
+      id: '/_authenticated/reports'
       path: '/reports'
       fullPath: '/reports'
-      preLoaderRoute: typeof ReportsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedReportsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/response-center': {
-      id: '/response-center'
+    '/_authenticated/response-center': {
+      id: '/_authenticated/response-center'
       path: '/response-center'
       fullPath: '/response-center'
-      preLoaderRoute: typeof ResponseCenterRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedResponseCenterRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/reviews': {
-      id: '/reviews'
+    '/_authenticated/reviews': {
+      id: '/_authenticated/reviews'
       path: '/reviews'
       fullPath: '/reviews'
-      preLoaderRoute: typeof ReviewsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedReviewsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/settings': {
-      id: '/settings'
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
       path: '/settings'
       fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/team': {
-      id: '/team'
+    '/_authenticated/team': {
+      id: '/_authenticated/team'
       path: '/team'
       fullPath: '/team'
-      preLoaderRoute: typeof TeamRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedTeamRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAlertsRoute: typeof AuthenticatedAlertsRoute
+  AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
+  AuthenticatedImproveRoute: typeof AuthenticatedImproveRoute
+  AuthenticatedLocationsRoute: typeof AuthenticatedLocationsRoute
+  AuthenticatedRatingsRoute: typeof AuthenticatedRatingsRoute
+  AuthenticatedReportsRoute: typeof AuthenticatedReportsRoute
+  AuthenticatedResponseCenterRoute: typeof AuthenticatedResponseCenterRoute
+  AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedTeamRoute: typeof AuthenticatedTeamRoute
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAlertsRoute: AuthenticatedAlertsRoute,
+  AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
+  AuthenticatedImproveRoute: AuthenticatedImproveRoute,
+  AuthenticatedLocationsRoute: AuthenticatedLocationsRoute,
+  AuthenticatedRatingsRoute: AuthenticatedRatingsRoute,
+  AuthenticatedReportsRoute: AuthenticatedReportsRoute,
+  AuthenticatedResponseCenterRoute: AuthenticatedResponseCenterRoute,
+  AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedTeamRoute: AuthenticatedTeamRoute,
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AlertsRoute: AlertsRoute,
-  AnalyticsRoute: AnalyticsRoute,
-  ImproveRoute: ImproveRoute,
-  LocationsRoute: LocationsRoute,
-  RatingsRoute: RatingsRoute,
-  ReportsRoute: ReportsRoute,
-  ResponseCenterRoute: ResponseCenterRoute,
-  ReviewsRoute: ReviewsRoute,
-  SettingsRoute: SettingsRoute,
-  TeamRoute: TeamRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type { Database } from "@/integrations/supabase/types";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const WORKSPACE = "northstar-group";
 const MODEL = "openai/gpt-6-astra";
@@ -9,7 +8,6 @@ const MODEL = "openai/gpt-6-astra";
 const inputSchema = z.object({
   text: z.string().trim().min(20, "Add at least 20 characters of review text.").max(6000),
   reviewId: z.string().uuid().nullable().optional(),
-  author: z.string().trim().min(1).max(80).default("Riya Sharma"),
 });
 
 const analysisSchema = z.object({
@@ -44,8 +42,37 @@ Owners must be internal roles such as Store Manager, Shift Lead, Training Lead, 
 Respond with JSON only, matching the requested schema exactly.`;
 
 export const analyzeReviewText = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => inputSchema.parse(data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+
+    const membership = await supabase
+      .from("reviewvala_members")
+      .select("role, status, email, full_name, workspace_slug")
+      .eq("user_id", userId)
+      .eq("workspace_slug", WORKSPACE)
+      .maybeSingle();
+
+    if (membership.error) throw new Error("Workspace access could not be verified.");
+    const member = membership.data;
+    if (!member || member.status !== "Active") throw new Error("Your workspace access is not active yet.");
+    if (!["Admin", "Manager", "Responder"].includes(member.role)) throw new Error("Your role cannot run AI analysis.");
+
+    const author = member.full_name || member.email || "Member";
+
+    let reviewId: string | null = null;
+    if (data.reviewId) {
+      const owned = await supabase
+        .from("reviewvala_reviews")
+        .select("id")
+        .eq("id", data.reviewId)
+        .eq("workspace_slug", WORKSPACE)
+        .maybeSingle();
+      if (owned.error || !owned.data) throw new Error("That review is not part of your workspace.");
+      reviewId = owned.data.id;
+    }
+
     const apiKey = process.env["LOVABLE_API_KEY"];
     if (!apiKey) throw new Error("AI is not configured for this workspace.");
 
@@ -164,17 +191,11 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
       throw new Error("The analysis could not be read. Try again.");
     }
 
-    const supabase = createClient<Database>(
-      process.env["SUPABASE_URL"]!,
-      process.env["SUPABASE_PUBLISHABLE_KEY"]!,
-      { auth: { storage: undefined, persistSession: false, autoRefreshToken: false } },
-    );
-
     const { data: saved, error } = await supabase
       .from("reviewvala_insights")
       .insert({
         workspace_slug: WORKSPACE,
-        review_id: data.reviewId ?? null,
+        review_id: reviewId,
         source_text: data.text,
         headline: parsed.headline,
         sentiment: parsed.sentiment,
@@ -183,7 +204,7 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
         root_causes: parsed.root_causes,
         recommendations: parsed.recommendations,
         model: MODEL,
-        created_by: data.author,
+        created_by: author,
       })
       .select("id")
       .single();
