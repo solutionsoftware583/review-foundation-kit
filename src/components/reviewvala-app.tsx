@@ -799,7 +799,7 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
 
 /* ----------------------------------------------------------------- modules --- */
 
-type ModuleKey = Exclude<PageKey, "Overview" | "Reviews" | "Response Center">;
+type ModuleKey = Exclude<PageKey, "Overview" | "Reviews" | "Response Center" | "Improve">;
 
 function buildModuleCard(page: ModuleKey, derived: Derived, responses: ResponseRecord[], role: Role): { metric: string; label: string; items: string[]; insight: string } {
   const topLocation = derived.locations[0];
