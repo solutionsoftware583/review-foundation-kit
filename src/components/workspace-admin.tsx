@@ -29,6 +29,7 @@ export async function logAudit(entry: { actorUserId: string; actorName: string; 
     detail: entry.detail ?? "",
   });
   if (result.error) console.error(result.error);
+  else window.dispatchEvent(new Event("reviewvala-audit"));
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -257,7 +258,12 @@ export function AuditLogPanel() {
     setEntries(result.data as AuditEntry[]);
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const refresh = () => void load();
+    window.addEventListener("reviewvala-audit", refresh);
+    return () => window.removeEventListener("reviewvala-audit", refresh);
+  }, [load]);
 
   return <section className={CARD}>
     <div className="flex flex-wrap items-center justify-between gap-2">
