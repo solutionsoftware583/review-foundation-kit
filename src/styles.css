@@ -84,6 +84,9 @@
   --shadow-card: var(--shadow-card);
   --shadow-brand: var(--shadow-brand);
   --shadow-modal: var(--shadow-modal);
+  --shadow-3d: var(--shadow-3d);
+  --shadow-3d-hover: var(--shadow-3d-hover);
+  --shadow-inset-3d: var(--shadow-inset-3d);
 }
 
 :root {
