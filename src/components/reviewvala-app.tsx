@@ -949,16 +949,16 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
   return <div className="grid gap-5 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
     <section className="card-3d h-fit rounded-lg bg-card p-5">
       <div className="flex items-center gap-3"><span className="icon-3d size-9 bg-brand-soft text-brand"><Lightbulb className="size-4"/></span><div><h2 className="font-display text-lg font-bold">Root cause analysis</h2><p className="text-xs text-muted-foreground">Paste review text to surface causes and service fixes.</p></div></div>
-      {!allowed && <div className="mt-4"><RoleNotice role={role} action="run an analysis"/></div>}
+      {!allowed && <RoleNotice>The {role} role cannot run a new analysis, but saved analyses stay visible.</RoleNotice>}
       <div className="mt-4 space-y-3">
         <Field label="Review text">
           <Textarea value={text} onChange={(event) => setText(event.target.value)} rows={8} disabled={!allowed || busy} placeholder="Paste one or more customer reviews here…" className="resize-y"/>
         </Field>
         <Field label="Link to a review (optional)">
-          <Select value={linkedId} onChange={(event) => setLinkedId(event.target.value)} disabled={!allowed || busy}>
+          <select value={linkedId} onChange={(event) => setLinkedId(event.target.value)} disabled={!allowed || busy} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">
             <option value="">Not linked</option>
             {reviews.map((review) => <option key={review.id} value={review.id}>{review.name} · {review.location} · {review.rating}★</option>)}
-          </Select>
+          </select>
         </Field>
         {linkedId && <Button variant="outline" className="w-full" disabled={busy} onClick={() => { const match = reviews.find((review) => review.id === linkedId); if (match) setText(match.text); }}>Use that review's text</Button>}
         {error && <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">{error}</p>}
@@ -1015,7 +1015,9 @@ export function ReviewValaApp() {
       ? <ReviewsPage reviews={data.reviews} responses={data.responses} events={data.events} notes={data.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
         ? <ResponseCenter reviews={data.reviews} responses={data.responses} events={data.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
-        : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
+        : page === "Improve"
+          ? <ImprovePage reviews={data.reviews} role={role} can={can}/>
+          : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
 
   const resolvedState: PreviewState = data.dataStatus === "loading" ? "Loading" : data.dataStatus === "error" ? "Error" : "Live data";
 
