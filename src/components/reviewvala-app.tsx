@@ -1327,6 +1327,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const session = useSession();
+  const workspaceName = session.workspaceName;
   const { role, can, actorName, member } = session;
   const data = useWorkspaceData(role, actorName);
   const derived = useMemo(() => deriveWorkspace(data.reviews, data.responses, data.snapshots), [data.reviews, data.responses, data.snapshots]);
