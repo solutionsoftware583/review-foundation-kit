@@ -833,7 +833,7 @@ function ModulePage({ page, derived, reviews, responses, setPage, role }: { page
 
 /* ------------------------------------------------------------------ states --- */
 
-function StatePanel({ state, onRetry, onCreate }: { state: Exclude<PreviewState, "Live data">; onRetry?: () => void; onCreate?: () => void }) {
+function StatePanel({ state, onRetry, onCreate }: { state: Exclude<PreviewState, "Live data">; onRetry?: (() => void) | undefined; onCreate?: (() => void) | undefined }) {
   const config = state === "Loading"
     ? { icon: Activity, title: "Loading your reputation workspace", copy: "Bringing together reviews, ratings, and team activity…" }
     : state === "Empty"
