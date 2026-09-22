@@ -379,7 +379,31 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     drafted: responses.filter((response) => response.author_name === name).length,
     published: responses.filter((response) => response.author_name === name && response.response_status === "Published").length,
     assigned: reviews.filter((review) => review.assignee === name).length,
+  })).sort((a, b) => (b.assigned + b.drafted) - (a.assigned + a.drafted));
+
+  const sentimentMix = (["Positive", "Mixed", "Negative"] as const).map((sentiment) => {
+    const count = reviews.filter((review) => review.sentiment === sentiment).length;
+    return { sentiment, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
+  });
+
+  const priorityMix = (["Urgent", "High", "Normal", "Low"] as const).map((priority) => ({
+    priority,
+    count: reviews.filter((review) => review.priority === priority).length,
+    open: reviews.filter((review) => review.priority === priority && review.status !== "Replied").length,
   }));
+
+  const pipeline = (["Draft", "Pending approval", "Changes requested", "Approved", "Published"] as const).map((stage) => ({
+    stage,
+    count: responses.filter((response) => response.response_status === stage).length,
+  }));
+
+  const monthOf = (value: string) => new Date(value).toLocaleString("en-US", { month: "short" });
+  const volume = periods.map((period) => reviews.filter((review) => monthOf(review.reviewDate) === period).length);
+
+  const ratingBreakdown = [5, 4, 3, 2, 1].map((stars) => {
+    const count = reviews.filter((review) => Math.round(review.rating) === stars).length;
+    return { stars, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
+  });
 
   const alerts = [
     ...reviews.filter((review) => review.status === "Escalated").map((review) => ({ tone: "bad" as const, title: `Escalated ${review.rating}-star review from ${review.name}`, meta: `${review.location} · ${review.source} · ${review.time}` })),
