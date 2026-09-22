@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      reviewvala_audit_log: {
+        Row: {
+          action: string
+          actor_name: string
+          actor_user_id: string | null
+          created_at: string
+          detail: string
+          id: string
+          target: string
+          workspace_slug: string
+        }
+        Insert: {
+          action: string
+          actor_name?: string
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: string
+          id?: string
+          target?: string
+          workspace_slug: string
+        }
+        Update: {
+          action?: string
+          actor_name?: string
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: string
+          id?: string
+          target?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
       reviewvala_businesses: {
         Row: {
           category: string | null
@@ -120,6 +153,62 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "reviewvala_reviews"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      reviewvala_invites: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          created_by_name: string
+          expires_at: string | null
+          id: string
+          label: string
+          max_uses: number
+          revoked: boolean
+          role: Database["public"]["Enums"]["reviewvala_role"]
+          updated_at: string
+          used_count: number
+          workspace_slug: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          created_by_name?: string
+          expires_at?: string | null
+          id?: string
+          label?: string
+          max_uses?: number
+          revoked?: boolean
+          role?: Database["public"]["Enums"]["reviewvala_role"]
+          updated_at?: string
+          used_count?: number
+          workspace_slug: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          created_by_name?: string
+          expires_at?: string | null
+          id?: string
+          label?: string
+          max_uses?: number
+          revoked?: boolean
+          role?: Database["public"]["Enums"]["reviewvala_role"]
+          updated_at?: string
+          used_count?: number
+          workspace_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_invites_workspace_slug_fkey"
+            columns: ["workspace_slug"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_workspaces"
+            referencedColumns: ["slug"]
           },
         ]
       }
@@ -362,10 +451,12 @@ export type Database = {
           created_at: string
           id: string
           industry: string | null
+          locale: string
           name: string
           owner_user_id: string | null
           plan: string
           slug: string
+          timezone: string
           updated_at: string
           website: string | null
         }
@@ -373,10 +464,12 @@ export type Database = {
           created_at?: string
           id?: string
           industry?: string | null
+          locale?: string
           name: string
           owner_user_id?: string | null
           plan?: string
           slug: string
+          timezone?: string
           updated_at?: string
           website?: string | null
         }
@@ -384,10 +477,12 @@ export type Database = {
           created_at?: string
           id?: string
           industry?: string | null
+          locale?: string
           name?: string
           owner_user_id?: string | null
           plan?: string
           slug?: string
+          timezone?: string
           updated_at?: string
           website?: string | null
         }
@@ -433,6 +528,26 @@ export type Database = {
       reviewvala_member_role: {
         Args: { _user_id: string; _workspace: string }
         Returns: Database["public"]["Enums"]["reviewvala_role"]
+      }
+      reviewvala_redeem_invite: {
+        Args: { _code: string }
+        Returns: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["reviewvala_role"]
+          status: string
+          updated_at: string
+          user_id: string
+          workspace_slug: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reviewvala_members"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
     }
     Enums: {
