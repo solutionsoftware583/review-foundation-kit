@@ -14,6 +14,65 @@ export type Database = {
   }
   public: {
     Tables: {
+      reviewvala_insights: {
+        Row: {
+          created_at: string
+          created_by: string
+          headline: string
+          id: string
+          model: string
+          recommendations: Json
+          review_id: string | null
+          root_causes: Json
+          sentiment: string
+          severity: string
+          source_text: string
+          themes: Json
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          headline: string
+          id?: string
+          model?: string
+          recommendations?: Json
+          review_id?: string | null
+          root_causes?: Json
+          sentiment?: string
+          severity?: string
+          source_text: string
+          themes?: Json
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          headline?: string
+          id?: string
+          model?: string
+          recommendations?: Json
+          review_id?: string | null
+          root_causes?: Json
+          sentiment?: string
+          severity?: string
+          source_text?: string
+          themes?: Json
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_insights_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reviewvala_rating_snapshots: {
         Row: {
           channel: string

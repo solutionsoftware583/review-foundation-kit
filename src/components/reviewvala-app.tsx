@@ -14,6 +14,8 @@ import {
   History,
   Inbox,
   LayoutDashboard,
+  Lightbulb,
+  Loader2,
   Lock,
   MapPin,
   Menu,
@@ -35,11 +37,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { analyzeReviewText } from "@/lib/insights.functions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
-type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
+type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Improve" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
 type PreviewState = "Live data" | "Loading" | "Empty" | "Error";
 type BadgeKey = "needsReply" | "pendingResponses" | "alerts";
 
@@ -92,7 +96,8 @@ const navGroups: { label: string; items: { name: PageKey; icon: typeof Gauge; ba
     { name: "Response Center", icon: MessageSquareReply, badge: "pendingResponses" }, { name: "Ratings", icon: Star },
   ]},
   { label: "Intelligence", items: [
-    { name: "Analytics", icon: ChartNoAxesCombined }, { name: "Alerts", icon: Bell, badge: "alerts" },
+    { name: "Analytics", icon: ChartNoAxesCombined }, { name: "Improve", icon: Lightbulb },
+    { name: "Alerts", icon: Bell, badge: "alerts" },
     { name: "Reports", icon: FileBarChart },
   ]},
   { label: "Manage", items: [
@@ -389,6 +394,7 @@ const pageDescriptions: Record<PageKey, string> = {
   "Response Center": "Draft, approve, and publish thoughtful responses faster.",
   Ratings: "Understand rating movement across channels and locations.",
   Analytics: "Turn customer feedback into clear, actionable intelligence.",
+  Improve: "Find the root causes behind feedback and act on service improvements.",
   Alerts: "Stay ahead of urgent reviews and reputation changes.",
   Locations: "Compare performance and ownership across every location.",
   Team: "Manage collaborators, roles, and response accountability.",
@@ -795,7 +801,7 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
 
 /* ----------------------------------------------------------------- modules --- */
 
-type ModuleKey = Exclude<PageKey, "Overview" | "Reviews" | "Response Center">;
+type ModuleKey = Exclude<PageKey, "Overview" | "Reviews" | "Response Center" | "Improve">;
 
 function buildModuleCard(page: ModuleKey, derived: Derived, responses: ResponseRecord[], role: Role): { metric: string; label: string; items: string[]; insight: string } {
   const topLocation = derived.locations[0];
@@ -866,6 +872,120 @@ function Notifications({ close, derived, goTo }: { close: () => void; derived: D
   </aside></div>;
 }
 
+/* ----------------------------------------------------------------- improve --- */
+
+type RootCause = { cause: string; evidence: string; confidence: string };
+type Recommendation = { action: string; owner: string; effort: string; impact: string; timeframe: string };
+type InsightRecord = {
+  id: string;
+  review_id: string | null;
+  source_text: string;
+  headline: string;
+  sentiment: string;
+  severity: string;
+  themes: string[];
+  root_causes: RootCause[];
+  recommendations: Recommendation[];
+  created_by: string;
+  created_at: string;
+};
+
+function severityTone(severity: string): "good" | "warn" | "bad" | "brand" {
+  return severity === "Critical" || severity === "High" ? "bad" : severity === "Medium" ? "warn" : "good";
+}
+
+function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; can: (action: Permission) => boolean }) {
+  const [insights, setInsights] = useState<InsightRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [linkedId, setLinkedId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const allowed = can("draftResponse");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("reviewvala_insights")
+      .select("*")
+      .eq("workspace_slug", WORKSPACE)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setInsights(
+      (data ?? []).map((row) => ({
+        id: row.id,
+        review_id: row.review_id,
+        source_text: row.source_text,
+        headline: row.headline,
+        sentiment: row.sentiment,
+        severity: row.severity,
+        themes: (row.themes ?? []) as string[],
+        root_causes: (row.root_causes ?? []) as RootCause[],
+        recommendations: (row.recommendations ?? []) as Recommendation[],
+        created_by: row.created_by,
+        created_at: row.created_at,
+      })),
+    );
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const run = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null, author: ACTOR_NAME } });
+      setText("");
+      setLinkedId("");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The analysis could not be completed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="grid gap-5 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+    <section className="card-3d h-fit rounded-lg bg-card p-5">
+      <div className="flex items-center gap-3"><span className="icon-3d size-9 bg-brand-soft text-brand"><Lightbulb className="size-4"/></span><div><h2 className="font-display text-lg font-bold">Root cause analysis</h2><p className="text-xs text-muted-foreground">Paste review text to surface causes and service fixes.</p></div></div>
+      {!allowed && <RoleNotice>The {role} role cannot run a new analysis, but saved analyses stay visible.</RoleNotice>}
+      <div className="mt-4 space-y-3">
+        <Field label="Review text">
+          <Textarea value={text} onChange={(event) => setText(event.target.value)} rows={8} disabled={!allowed || busy} placeholder="Paste one or more customer reviews here…" className="resize-y"/>
+        </Field>
+        <Field label="Link to a review (optional)">
+          <select value={linkedId} onChange={(event) => setLinkedId(event.target.value)} disabled={!allowed || busy} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">
+            <option value="">Not linked</option>
+            {reviews.map((review) => <option key={review.id} value={review.id}>{review.name} · {review.location} · {review.rating}★</option>)}
+          </select>
+        </Field>
+        {linkedId && <Button variant="outline" className="w-full" disabled={busy} onClick={() => { const match = reviews.find((review) => review.id === linkedId); if (match) setText(match.text); }}>Use that review's text</Button>}
+        {error && <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">{error}</p>}
+        <Button className="w-full shadow-brand" disabled={!allowed || busy || text.trim().length < 20} onClick={() => void run()}>{busy ? <><Loader2 className="animate-spin"/>Analysing…</> : <><Sparkles/>Analyse review</>}</Button>
+        <p className="text-[11px] text-muted-foreground">Analyses are saved to this workspace so the team can act on them later.</p>
+      </div>
+    </section>
+
+    <section className="space-y-4">
+      {loading && <div className="card-3d rounded-lg bg-card p-8 text-center text-sm text-muted-foreground"><Loader2 className="mx-auto mb-3 size-5 animate-spin text-brand"/>Loading saved analyses…</div>}
+      {!loading && !insights.length && <div className="outline-glass rounded-lg p-8 text-center"><span className="icon-3d mx-auto size-10 bg-brand-soft text-brand"><Lightbulb className="size-5"/></span><h3 className="mt-4 font-display text-base font-bold">No analyses yet</h3><p className="mt-1 text-sm text-muted-foreground">Paste review text on the left to get root causes and recommended service improvements.</p></div>}
+      {insights.map((insight) => <article key={insight.id} className="card-3d rounded-lg bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0"><h3 className="font-display text-base font-bold">{insight.headline}</h3><p className="mt-1 text-xs text-muted-foreground">{insight.created_by} · {new Date(insight.created_at).toLocaleString()}</p></div>
+          <div className="flex flex-wrap gap-2"><StatusPill tone={severityTone(insight.severity)}>{insight.severity} severity</StatusPill><StatusPill tone={insight.sentiment === "Positive" ? "good" : insight.sentiment === "Negative" ? "bad" : "warn"}>{insight.sentiment}</StatusPill></div>
+        </div>
+        {!!insight.themes.length && <div className="mt-3 flex flex-wrap gap-2">{insight.themes.map((theme) => <span key={theme} className="rounded-full border border-border bg-surface px-3 py-1 text-[11px] font-semibold">{theme}</span>)}</div>}
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Root causes</p><ul className="mt-2 space-y-2">{insight.root_causes.map((item, index) => <li key={index} className="inset-3d rounded-md p-3 text-sm"><strong className="block">{item.cause}</strong><span className="mt-1 block text-xs text-muted-foreground">{item.evidence}</span><span className="mt-2 inline-block text-[10px] font-bold uppercase tracking-wider text-brand">{item.confidence} confidence</span></li>)}</ul></div>
+          <div><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Recommended improvements</p><ul className="mt-2 space-y-2">{insight.recommendations.map((item, index) => <li key={index} className="inset-3d rounded-md p-3 text-sm"><strong className="block">{item.action}</strong><span className="mt-1 block text-xs text-muted-foreground">{item.owner} · {item.timeframe}</span><span className="mt-2 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="text-brand">Impact {item.impact}</span><span className="text-muted-foreground">Effort {item.effort}</span></span></li>)}</ul></div>
+        </div>
+        <details className="mt-4"><summary className="cursor-pointer text-xs font-semibold text-muted-foreground">Source text</summary><p className="mt-2 whitespace-pre-wrap rounded-md border p-3 text-xs leading-6 text-muted-foreground">{insight.source_text}</p></details>
+      </article>)}
+    </section>
+  </div>;
+}
+
 /* -------------------------------------------------------------------- app --- */
 
 export function ReviewValaApp() {
@@ -895,7 +1015,9 @@ export function ReviewValaApp() {
       ? <ReviewsPage reviews={data.reviews} responses={data.responses} events={data.events} notes={data.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
         ? <ResponseCenter reviews={data.reviews} responses={data.responses} events={data.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
-        : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
+        : page === "Improve"
+          ? <ImprovePage reviews={data.reviews} role={role} can={can}/>
+          : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
 
   const resolvedState: PreviewState = data.dataStatus === "loading" ? "Loading" : data.dataStatus === "error" ? "Error" : "Live data";
 
