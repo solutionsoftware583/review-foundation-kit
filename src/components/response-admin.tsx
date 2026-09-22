@@ -209,7 +209,7 @@ export function ApprovalPoliciesPanel({ role }: { role: Role }) {
       workspace_slug: WORKSPACE_SLUG, name: name.trim(), position: policies.length,
       min_rating: Number(minRating), max_rating: Number(maxRating),
       ...(priority === "Any" ? {} : { match_priority: priority }),
-      required_role: requiredRole as ApprovalPolicy["required_role"],
+      required_role: requiredRole as "Admin" | "Manager",
       require_second_approval: second, auto_publish: autoPublish,
     });
     setBusy(false);
