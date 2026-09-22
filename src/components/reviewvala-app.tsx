@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -36,6 +36,7 @@ import {
   X,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import { Overlay } from "@/components/overlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -303,30 +304,87 @@ function average(values: number[]) {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
+/** Groups items once by key; Map keeps first-seen order, matching the previous scan order. */
+function groupBy<T>(items: T[], key: (item: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const bucket = map.get(key(item));
+    if (bucket) bucket.push(item);
+    else map.set(key(item), [item]);
+  }
+  return map;
+}
+
 function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapshots: RatingSnapshot[]) {
   const totalReviews = reviews.length;
-  const needsReply = reviews.filter((review) => review.status === "Needs reply").length;
-  const escalated = reviews.filter((review) => review.status === "Escalated").length;
-  const replied = reviews.filter((review) => review.status === "Replied").length;
-  const positive = reviews.filter((review) => review.sentiment === "Positive").length;
-  const unassigned = reviews.filter((review) => !review.assignee).length;
-  const urgent = reviews.filter((review) => review.priority === "Urgent").length;
-  const pendingResponses = responses.filter((response) => response.response_status !== "Published").length;
-  const awaitingApproval = responses.filter((response) => response.response_status === "Pending approval").length;
-  const overallRating = average(reviews.map((review) => review.rating));
+
+  // Single pass over reviews for every count-style metric.
+  const statusCount = new Map<string, number>();
+  const sentimentCount = new Map<string, number>();
+  const priorityCount = new Map<string, number>();
+  const priorityOpen = new Map<string, number>();
+  const starCount = new Map<number, number>();
+  const monthCount = new Map<string, number>();
+  const assignedCount = new Map<string, number>();
+  const byLocation = new Map<string, Review[]>();
+  const bySource = new Map<string, Review[]>();
+  const bump = <K,>(map: Map<K, number>, key: K) => map.set(key, (map.get(key) ?? 0) + 1);
+  const push = (map: Map<string, Review[]>, key: string, review: Review) => {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(review);
+    else map.set(key, [review]);
+  };
+  const monthOf = (value: string) => new Date(value).toLocaleString("en-US", { month: "short" });
+
+  let ratingTotal = 0;
+  let unassigned = 0;
+  for (const review of reviews) {
+    ratingTotal += review.rating;
+    bump(statusCount, review.status);
+    bump(sentimentCount, review.sentiment);
+    bump(priorityCount, review.priority);
+    if (review.status !== "Replied") bump(priorityOpen, review.priority);
+    bump(starCount, Math.round(review.rating));
+    bump(monthCount, monthOf(review.reviewDate));
+    push(byLocation, review.location, review);
+    push(bySource, review.source, review);
+    if (review.assignee) bump(assignedCount, review.assignee);
+    else unassigned += 1;
+  }
+
+  const draftedCount = new Map<string, number>();
+  const publishedCount = new Map<string, number>();
+  const stageCount = new Map<string, number>();
+  for (const response of responses) {
+    bump(draftedCount, response.author_name);
+    if (response.response_status === "Published") bump(publishedCount, response.author_name);
+    bump(stageCount, response.response_status);
+  }
+
+  const needsReply = statusCount.get("Needs reply") ?? 0;
+  const escalated = statusCount.get("Escalated") ?? 0;
+  const replied = statusCount.get("Replied") ?? 0;
+  const positive = sentimentCount.get("Positive") ?? 0;
+  const urgent = priorityCount.get("Urgent") ?? 0;
+  const published = stageCount.get("Published") ?? 0;
+  const pendingResponses = responses.length - published;
+  const awaitingApproval = stageCount.get("Pending approval") ?? 0;
+  const overallRating = totalReviews ? ratingTotal / totalReviews : 0;
   const responseRate = totalReviews ? Math.round((replied / totalReviews) * 100) : 0;
   const positiveShare = totalReviews ? Math.round((positive / totalReviews) * 100) : 0;
 
-  const periods: string[] = [];
-  for (const snapshot of snapshots) if (!periods.includes(snapshot.period_label)) periods.push(snapshot.period_label);
-  const trend = periods.map((period) => average(snapshots.filter((snapshot) => snapshot.period_label === period).map((snapshot) => Number(snapshot.rating))));
+  const byPeriod = groupBy(snapshots, (snapshot) => snapshot.period_label);
+  const periods = [...byPeriod.keys()];
+  const trend = periods.map((period) => average((byPeriod.get(period) ?? []).map((snapshot) => Number(snapshot.rating))));
 
-  const channelNames: string[] = [];
-  for (const snapshot of snapshots) if (!channelNames.includes(snapshot.channel)) channelNames.push(snapshot.channel);
-  const channelSeries = channelNames.map((channel) => ({
-    channel,
-    series: periods.map((period) => average(snapshots.filter((snapshot) => snapshot.channel === channel && snapshot.period_label === period).map((snapshot) => Number(snapshot.rating)))),
-  }));
+  const byChannel = groupBy(snapshots, (snapshot) => snapshot.channel);
+  const channelSeries = [...byChannel.entries()].map(([channel, rows]) => {
+    const scopedByPeriod = groupBy(rows, (snapshot) => snapshot.period_label);
+    return {
+      channel,
+      series: periods.map((period) => average((scopedByPeriod.get(period) ?? []).map((snapshot) => Number(snapshot.rating)))),
+    };
+  });
   const channels = channelSeries.map(({ channel, series }) => {
     const clean = series.filter((value) => value > 0);
     const latest = clean[clean.length - 1] ?? 0;
@@ -334,52 +392,49 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     return { channel, latest, change: latest - first };
   });
 
-  const locationNames: string[] = [];
-  for (const review of reviews) if (!locationNames.includes(review.location)) locationNames.push(review.location);
-  const locations = locationNames.map((name) => {
-    const scoped = reviews.filter((review) => review.location === name);
-    const score = average(scoped.map((review) => review.rating));
-    return { name, score, reviews: scoped.length, needsReply: scoped.filter((review) => review.status === "Needs reply").length };
-  }).sort((a, b) => b.score - a.score);
+  const locations = [...byLocation.entries()].map(([name, scoped]) => ({
+    name,
+    score: average(scoped.map((review) => review.rating)),
+    reviews: scoped.length,
+    needsReply: scoped.filter((review) => review.status === "Needs reply").length,
+  })).sort((a, b) => b.score - a.score);
 
-  const sourceNames: string[] = [];
-  for (const review of reviews) if (!sourceNames.includes(review.source)) sourceNames.push(review.source);
-  const sources = sourceNames.map((source) => {
-    const scoped = reviews.filter((review) => review.source === source);
-    return { source, count: scoped.length, score: average(scoped.map((review) => review.rating)) };
-  }).sort((a, b) => b.count - a.count);
+  const sources = [...bySource.entries()].map(([source, scoped]) => ({
+    source,
+    count: scoped.length,
+    score: average(scoped.map((review) => review.rating)),
+  })).sort((a, b) => b.count - a.count);
 
   const memberNames: string[] = [];
-  for (const response of responses) if (!memberNames.includes(response.author_name)) memberNames.push(response.author_name);
-  for (const review of reviews) if (review.assignee && !memberNames.includes(review.assignee)) memberNames.push(review.assignee);
+  for (const name of draftedCount.keys()) memberNames.push(name);
+  for (const name of assignedCount.keys()) if (!memberNames.includes(name)) memberNames.push(name);
   const teammates = memberNames.map((name) => ({
     name,
-    drafted: responses.filter((response) => response.author_name === name).length,
-    published: responses.filter((response) => response.author_name === name && response.response_status === "Published").length,
-    assigned: reviews.filter((review) => review.assignee === name).length,
+    drafted: draftedCount.get(name) ?? 0,
+    published: publishedCount.get(name) ?? 0,
+    assigned: assignedCount.get(name) ?? 0,
   })).sort((a, b) => (b.assigned + b.drafted) - (a.assigned + a.drafted));
 
   const sentimentMix = (["Positive", "Mixed", "Negative"] as const).map((sentiment) => {
-    const count = reviews.filter((review) => review.sentiment === sentiment).length;
+    const count = sentimentCount.get(sentiment) ?? 0;
     return { sentiment, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
   });
 
   const priorityMix = (["Urgent", "High", "Normal", "Low"] as const).map((priority) => ({
     priority,
-    count: reviews.filter((review) => review.priority === priority).length,
-    open: reviews.filter((review) => review.priority === priority && review.status !== "Replied").length,
+    count: priorityCount.get(priority) ?? 0,
+    open: priorityOpen.get(priority) ?? 0,
   }));
 
   const pipeline = (["Draft", "Pending approval", "Changes requested", "Approved", "Published"] as const).map((stage) => ({
     stage,
-    count: responses.filter((response) => response.response_status === stage).length,
+    count: stageCount.get(stage) ?? 0,
   }));
 
-  const monthOf = (value: string) => new Date(value).toLocaleString("en-US", { month: "short" });
-  const volume = periods.map((period) => reviews.filter((review) => monthOf(review.reviewDate) === period).length);
+  const volume = periods.map((period) => monthCount.get(period) ?? 0);
 
   const ratingBreakdown = [5, 4, 3, 2, 1].map((stars) => {
-    const count = reviews.filter((review) => Math.round(review.rating) === stars).length;
+    const count = starCount.get(stars) ?? 0;
     return { stars, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
   });
 
@@ -469,11 +524,15 @@ function IconButton({ label, children, onClick, className, type = "button", disa
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="grid gap-1.5 text-xs font-semibold">{label}{children}</label>;
+  const generatedId = useId();
+  const control = isValidElement<{ id?: string }>(children)
+    ? cloneElement(children, { id: children.props.id ?? generatedId })
+    : children;
+  return <label htmlFor={generatedId} className="grid gap-1.5 text-xs font-semibold">{label}{control}</label>;
 }
 
-function Select({ value, onChange, options, disabled }: { value: string; onChange: (value: string) => void; options: string[]; disabled?: boolean }) {
-  return <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
+function Select({ value, onChange, options, disabled, id }: { value: string; onChange: (value: string) => void; options: string[]; disabled?: boolean; id?: string }) {
+  return <select id={id} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
 }
 
 function RoleNotice({ children }: { children: React.ReactNode }) {
@@ -485,7 +544,7 @@ function RoleNotice({ children }: { children: React.ReactNode }) {
 function Sidebar({ page, setPage, open, close, derived, role, actorName, memberEmail, onSignOut }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived; role: Role; actorName: string; memberEmail: string; onSignOut: () => void }) {
   const { workspaceName } = useSession();
   const badges: Record<BadgeKey, number> = { needsReply: derived.needsReply, pendingResponses: derived.pendingResponses, alerts: derived.alerts.length };
-  return <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-transform duration-300 lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
+  return <aside aria-label="Main navigation" className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-transform duration-300 lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
     <div className="flex items-center justify-between px-2 pb-5"><BrandMark/><IconButton label="Close navigation" onClick={close} className="lg:hidden"><X/></IconButton></div>
     <button onClick={() => { setPage("Locations"); close(); }} className="mx-1 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-elevated p-2.5 text-left shadow-xs transition-colors hover:bg-sidebar-hover">
       <span className="flex min-w-0 items-center gap-2.5"><span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{workspaceName}</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
@@ -684,7 +743,7 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
     setSaving(true); setError("");
     try { await createReview(form); close(); } catch (caught) { console.error(caught); setError("Could not save this review. Nothing was created — please try again."); } finally { setSaving(false); }
   };
-  return <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-overlay/60 p-4 backdrop-blur-sm" onMouseDown={close}><form onSubmit={(event) => void submit(event)} onMouseDown={(event) => event.stopPropagation()} className="glass my-auto w-full max-w-2xl rounded-lg p-5 shadow-modal">
+  return <Overlay title="Add a review" description="Capture a customer conversation in the shared inbox." onClose={close} className="left-1/2 top-1/2 max-h-[92vh] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto"><form onSubmit={(event) => void submit(event)} className="glass w-full rounded-lg p-5 shadow-modal">
     <div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold">Add a review</h2><p className="mt-1 text-xs text-muted-foreground">Capture a customer conversation in the shared inbox.</p></div><IconButton type="button" label="Close review form" onClick={close}><X/></IconButton></div>
     <div className="mt-5 grid gap-4 sm:grid-cols-2">
       <Field label="Business"><Input value={workspaceName} readOnly className="bg-muted/60 font-normal"/></Field>
@@ -697,10 +756,10 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
       <Field label="Priority"><Select value={form.priority} onChange={(value) => update({ priority: value })} options={PRIORITIES}/></Field>
       <Field label="Assigned team member"><Select value={form.assignee} onChange={(value) => update({ assignee: value })} options={["", ...TEAM_MEMBERS]}/></Field>
     </div>
-    <label className="mt-4 grid gap-1.5 text-xs font-semibold">Review text<textarea required value={form.text} onChange={(event) => update({ text: event.target.value })} placeholder="What did the customer share?" className="inset-3d min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring"/></label>
+    <div className="mt-4"><Field label="Review text"><textarea required value={form.text} onChange={(event) => update({ text: event.target.value })} placeholder="What did the customer share?" className="inset-3d mt-0 min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring"/></Field></div>
     {error && <p role="alert" className="mt-3 rounded-md bg-destructive-soft p-3 text-xs font-semibold text-destructive">{error}</p>}
     <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={close}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Create review"}</Button></div>
-  </form></div>;
+  </form></Overlay>;
 }
 
 type ReviewFilters = { query: string; status: string; source: string; rating: string; sentiment: string; location: string; priority: string; assignment: string; from: string; sort: string };
@@ -1043,17 +1102,17 @@ function SearchOverlay({ close, reviews, onSelect }: { close: () => void; review
   const matches = query.trim()
     ? reviews.filter((review) => [review.name, review.text, review.location, review.source, review.status, review.assignee ?? ""].join(" ").toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8)
     : reviews.slice(0, 5);
-  return <div className="fixed inset-0 z-50 bg-overlay p-4 backdrop-blur-sm" onMouseDown={close}><div onMouseDown={(event) => event.stopPropagation()} className="glass mx-auto mt-[10vh] max-w-2xl overflow-hidden rounded-lg shadow-modal">
+  return <Overlay title="Search" description="Search reviews, customers and locations." onClose={close} overlayClassName="bg-overlay" className="left-1/2 top-[10vh] w-[min(42rem,calc(100vw-2rem))] -translate-x-1/2"><div className="glass overflow-hidden rounded-lg shadow-modal">
     <div className="flex items-center gap-3 border-b p-4"><Search className="size-5 text-brand"/><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") close(); }} className="min-w-0 flex-1 bg-transparent text-base outline-none" placeholder="Search reviews, customers, locations…"/><kbd className="rounded border px-2 py-1 text-[10px] text-muted-foreground">ESC</kbd></div>
     <div className="max-h-[50vh] overflow-y-auto p-3"><p className="px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{query.trim() ? `${matches.length} match${matches.length === 1 ? "" : "es"}` : "Latest reviews"}</p>{matches.map((review) => <button key={review.id} onClick={() => { onSelect(review); close(); }} className="flex w-full items-center gap-3 rounded-md p-3 text-left text-sm hover:bg-surface">{review.rating <= 2 ? <Star className="size-4 shrink-0 text-destructive"/> : <MapPin className="size-4 shrink-0 text-brand"/>}<span className="min-w-0 flex-1"><strong className="block truncate">{review.name} · {review.rating}★</strong><span className="block truncate text-xs text-muted-foreground">{review.location} · {review.text}</span></span></button>)}{!matches.length && <p className="p-4 text-center text-xs text-muted-foreground">Nothing matches that search.</p>}</div>
-  </div></div>;
+  </div></Overlay>;
 }
 
 function Notifications({ close, derived, goTo }: { close: () => void; derived: Derived; goTo: (page: PageKey) => void }) {
-  return <div className="fixed inset-0 z-50 bg-overlay/50" onMouseDown={close}><aside onMouseDown={(event) => event.stopPropagation()} className="glass absolute right-0 top-0 h-full w-full max-w-sm overflow-y-auto rounded-none p-5 shadow-modal">
+  return <Overlay title="Notifications" description="Alerts that need your attention." onClose={close} overlayClassName="bg-overlay/50 backdrop-blur-none" className="right-0 top-0 h-full w-full max-w-sm"><aside className="glass h-full overflow-y-auto rounded-none p-5 shadow-modal">
     <div className="flex items-center justify-between"><div><h2 className="font-display text-lg font-bold">Notifications</h2><p className="mt-1 text-xs text-muted-foreground">{derived.alerts.length ? `${derived.alerts.length} need your attention` : "Nothing needs attention"}</p></div><IconButton label="Close notifications" onClick={close}><X/></IconButton></div>
     <div className="mt-6 space-y-2">{derived.alerts.map((alert, index) => <button key={`${alert.title}-${index}`} onClick={() => { goTo(alert.tone === "brand" ? "Response Center" : "Reviews"); close(); }} className="card-3d w-full rounded-lg bg-card p-4 text-left"><span className="flex items-start gap-3"><span className={cn("mt-1 size-2 shrink-0 rounded-full", alert.tone === "bad" ? "bg-destructive" : alert.tone === "warn" ? "bg-warning" : "bg-brand")}/><span className="min-w-0"><strong className="block text-sm">{alert.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{alert.meta}</span></span></span></button>)}{!derived.alerts.length && <p className="rounded-lg border p-6 text-center text-xs text-muted-foreground">You're all caught up.</p>}</div>
-  </aside></div>;
+  </aside></Overlay>;
 }
 
 /* ----------------------------------------------------------------- improve --- */
