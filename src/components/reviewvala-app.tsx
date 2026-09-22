@@ -1033,6 +1033,81 @@ function severityTone(severity: string): "good" | "warn" | "bad" | "brand" {
   return severity === "Critical" || severity === "High" ? "bad" : severity === "Medium" ? "warn" : "good";
 }
 
+function mapInsight(row: {
+  id: string; review_id: string | null; source_text: string; headline: string; sentiment: string; severity: string;
+  themes: unknown; root_causes: unknown; recommendations: unknown; created_by: string; created_at: string;
+}): InsightRecord {
+  return {
+    id: row.id, review_id: row.review_id, source_text: row.source_text, headline: row.headline,
+    sentiment: row.sentiment, severity: row.severity,
+    themes: (row.themes ?? []) as string[],
+    root_causes: (row.root_causes ?? []) as RootCause[],
+    recommendations: (row.recommendations ?? []) as Recommendation[],
+    created_by: row.created_by, created_at: row.created_at,
+  };
+}
+
+function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role; can: (action: Permission) => boolean }) {
+  const [insight, setInsight] = useState<InsightRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const allowed = can("draftResponse");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("reviewvala_insights").select("*").eq("workspace_slug", WORKSPACE).eq("review_id", review.id)
+      .order("created_at", { ascending: false }).limit(1);
+    setInsight(data && data.length ? mapInsight(data[0]) : null);
+    setLoading(false);
+  }, [review.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const run = async () => {
+    setError(null); setBusy(true);
+    try {
+      await analyzeReviewText({ data: { text: review.text, reviewId: review.id, author: ACTOR_NAME } });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The analysis could not be completed.");
+    } finally { setBusy(false); }
+  };
+
+  return <section className="card-3d mt-5 rounded-lg bg-card p-5">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+      <div className="min-w-0">
+        <h3 className="flex items-center gap-2 font-display text-base font-bold"><span className="icon-3d size-7 bg-brand-soft text-brand"><Sparkles className="size-3.5"/></span>AI analysis</h3>
+        <p className="mt-1 text-[11px] text-muted-foreground">Sentiment, root causes and recommended service fixes for this review.</p>
+      </div>
+      {allowed && <Button size="sm" variant={insight ? "outline" : "default"} disabled={busy || review.text.trim().length < 20} onClick={() => void run()}>{busy ? <><Loader2 className="animate-spin"/>Analysing…</> : <><Sparkles/>{insight ? "Re-run" : "Analyse review"}</>}</Button>}
+    </div>
+    {!allowed && <div className="mt-3"><RoleNotice>{role} access can read analyses but cannot run a new one.</RoleNotice></div>}
+    {error && <p role="alert" className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">{error}</p>}
+    {loading && <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin text-brand"/>Loading analysis…</p>}
+    {!loading && !insight && !busy && <p className="mt-4 rounded-md border border-dashed bg-surface p-4 text-xs text-muted-foreground">No analysis yet for this review. Run one to get root causes and recommended improvements.</p>}
+    {insight && <>
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <p className="min-w-0 text-sm font-semibold leading-6">{insight.headline}</p>
+        <span className="flex flex-wrap justify-end gap-2"><StatusPill tone={severityTone(insight.severity)}>{insight.severity} severity</StatusPill><StatusPill tone={insight.sentiment === "Positive" ? "good" : insight.sentiment === "Negative" ? "bad" : "warn"}>{insight.sentiment}</StatusPill></span>
+      </div>
+      {!!insight.themes.length && <div className="mt-3 flex flex-wrap gap-2">{insight.themes.map((theme) => <span key={theme} className="rounded-full border border-border bg-surface px-3 py-1 text-[11px] font-semibold">{theme}</span>)}</div>}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Root causes</p>
+          <ul className="mt-2 space-y-2">{insight.root_causes.map((item, index) => <li key={index} className="inset-3d rounded-md p-3 text-sm"><strong className="block text-xs">{item.cause}</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">{item.evidence}</span><span className="mt-2 inline-block text-[10px] font-bold uppercase tracking-wider text-brand">{item.confidence} confidence</span></li>)}</ul>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Recommended improvements</p>
+          <ul className="mt-2 space-y-2">{insight.recommendations.map((item, index) => <li key={index} className="inset-3d rounded-md p-3 text-sm"><strong className="block text-xs">{item.action}</strong><span className="mt-1 block text-[11px] text-muted-foreground">{item.owner} · {item.timeframe}</span><span className="mt-2 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="text-brand">Impact {item.impact}</span><span className="text-muted-foreground">Effort {item.effort}</span></span></li>)}</ul>
+        </div>
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground">Analysed by {insight.created_by} · {formatMoment(insight.created_at)}</p>
+    </>}
+  </section>;
+}
+
 function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; can: (action: Permission) => boolean }) {
   const [insights, setInsights] = useState<InsightRecord[]>([]);
   const [loading, setLoading] = useState(true);
