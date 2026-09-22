@@ -14,6 +14,56 @@ export type Database = {
   }
   public: {
     Tables: {
+      reviewvala_businesses: {
+        Row: {
+          category: string | null
+          city: string | null
+          country: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          location_label: string
+          name: string
+          updated_at: string
+          website: string | null
+          workspace_slug: string
+        }
+        Insert: {
+          category?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          location_label: string
+          name: string
+          updated_at?: string
+          website?: string | null
+          workspace_slug: string
+        }
+        Update: {
+          category?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          location_label?: string
+          name?: string
+          updated_at?: string
+          website?: string | null
+          workspace_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_businesses_workspace_slug_fkey"
+            columns: ["workspace_slug"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_workspaces"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       reviewvala_insights: {
         Row: {
           created_at: string
@@ -72,6 +122,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      reviewvala_members: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["reviewvala_role"]
+          status: string
+          updated_at: string
+          user_id: string
+          workspace_slug: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name?: string
+          id?: string
+          role?: Database["public"]["Enums"]["reviewvala_role"]
+          status?: string
+          updated_at?: string
+          user_id: string
+          workspace_slug?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          role?: Database["public"]["Enums"]["reviewvala_role"]
+          status?: string
+          updated_at?: string
+          user_id?: string
+          workspace_slug?: string
+        }
+        Relationships: []
       }
       reviewvala_rating_snapshots: {
         Row: {
@@ -271,15 +357,86 @@ export type Database = {
         }
         Relationships: []
       }
+      reviewvala_workspaces: {
+        Row: {
+          created_at: string
+          id: string
+          industry: string | null
+          name: string
+          owner_user_id: string | null
+          plan: string
+          slug: string
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          industry?: string | null
+          name: string
+          owner_user_id?: string | null
+          plan?: string
+          slug: string
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          industry?: string | null
+          name?: string
+          owner_user_id?: string | null
+          plan?: string
+          slug?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      reviewvala_can_write: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: boolean
+      }
+      reviewvala_claim_membership: {
+        Args: { _workspace?: string }
+        Returns: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["reviewvala_role"]
+          status: string
+          updated_at: string
+          user_id: string
+          workspace_slug: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reviewvala_members"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reviewvala_is_admin: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: boolean
+      }
+      reviewvala_is_member: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: boolean
+      }
+      reviewvala_member_role: {
+        Args: { _user_id: string; _workspace: string }
+        Returns: Database["public"]["Enums"]["reviewvala_role"]
+      }
     }
     Enums: {
-      [_ in never]: never
+      reviewvala_role: "Admin" | "Manager" | "Responder" | "Viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -406,6 +563,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      reviewvala_role: ["Admin", "Manager", "Responder", "Viewer"],
+    },
   },
 } as const

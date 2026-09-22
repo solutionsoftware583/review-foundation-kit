@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ReviewValaApp, pageMeta } from "@/components/reviewvala-app";
 
-const meta = pageMeta("Improve");
+const meta = pageMeta("Analytics");
 
-export const Route = createFileRoute("/improve")({
+export const Route = createFileRoute("/_authenticated/analytics")({
   head: () => ({
     meta: [
       { title: meta.title },
@@ -14,5 +14,5 @@ export const Route = createFileRoute("/improve")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <ReviewValaApp page="Improve" />,
+  component: () => <ReviewValaApp page="Analytics" />,
 });

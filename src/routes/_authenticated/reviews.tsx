@@ -3,7 +3,7 @@ import { ReviewValaApp, pageMeta } from "@/components/reviewvala-app";
 
 const meta = pageMeta("Reviews");
 
-export const Route = createFileRoute("/reviews")({
+export const Route = createFileRoute("/_authenticated/reviews")({
   validateSearch: (search: Record<string, unknown>): { review?: string } =>
     typeof search['review'] === "string" && search['review'] ? { review: search['review'] } : {},
   head: () => ({
