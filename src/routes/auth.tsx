@@ -102,14 +102,36 @@ function AuthPage() {
 
         <form className="mt-6 grid gap-3" onSubmit={submit}>
           {mode === "signup" && (
-            <label className="grid gap-1 text-xs font-semibold">
-              Full name
-              <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Riya Sharma" required className="font-normal" />
-            </label>
+            <>
+              <label className="grid gap-1 text-xs font-semibold">
+                Full name
+                <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Riya Sharma" required className="font-normal" />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold">
+                Username
+                <Input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="riyasharma"
+                  required
+                  pattern="[A-Za-z0-9._-]{3,30}"
+                  title="3–30 letters, numbers, dot, dash or underscore"
+                  className="font-normal"
+                />
+              </label>
+            </>
           )}
           <label className="grid gap-1 text-xs font-semibold">
-            Work email
-            <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" required className="font-normal" />
+            {mode === "signin" ? "Username or work email" : "Work email"}
+            <Input
+              type={mode === "signin" ? "text" : "email"}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder={mode === "signin" ? "superadmin or you@company.com" : "you@company.com"}
+              required
+              autoComplete="username"
+              className="font-normal"
+            />
           </label>
           <label className="grid gap-1 text-xs font-semibold">
             Password
