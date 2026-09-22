@@ -1059,7 +1059,8 @@ function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role;
     const { data } = await supabase
       .from("reviewvala_insights").select("*").eq("workspace_slug", WORKSPACE).eq("review_id", review.id)
       .order("created_at", { ascending: false }).limit(1);
-    setInsight(data && data.length ? mapInsight(data[0]) : null);
+    const row = data?.[0];
+    setInsight(row ? mapInsight(row) : null);
     setLoading(false);
   }, [review.id]);
 
