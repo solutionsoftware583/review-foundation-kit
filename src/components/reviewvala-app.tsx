@@ -41,6 +41,7 @@ import {
   Sparkles,
   Star,
   TrendingUp,
+  TriangleAlert,
   Users,
   WandSparkles,
   X,
