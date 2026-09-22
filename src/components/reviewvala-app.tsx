@@ -732,10 +732,18 @@ function applyFilters(reviews: Review[], filters: ReviewFilters) {
 }
 
 function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
-  if (!events.length) return <p className="mt-3 text-xs text-muted-foreground">No response activity recorded yet.</p>;
-  return <ol className="mt-3 space-y-3">{events.map((event) => <li key={event.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
-    <span className={cn("icon-3d mt-0.5 size-6 rounded-full text-[9px] font-bold", statusTone(event.to_status) === "good" ? "bg-success-soft text-success" : statusTone(event.to_status) === "bad" ? "bg-destructive-soft text-destructive" : statusTone(event.to_status) === "warn" ? "bg-warning-soft text-warning-strong" : "bg-brand-soft text-brand")}>{initialsOf(event.actor_name)}</span>
-    <span className="min-w-0"><span className="block text-xs font-semibold">{event.action}</span><span className="block text-[11px] text-muted-foreground">{event.actor_name} · {event.actor_role} · {formatMoment(event.created_at)}</span><span className="mt-1 block text-[11px] text-muted-foreground">{event.from_status ?? "New"} → {event.to_status}</span>{event.note && <span className="mt-1 block rounded-md bg-surface p-2 text-[11px] leading-5">{event.note}</span>}</span>
+  if (!events.length) return <p className="mt-4 rounded-md border border-dashed bg-surface p-4 text-xs text-muted-foreground">No response activity recorded yet. Every draft, approval and publish will appear here.</p>;
+  return <ol className="mt-4 space-y-0">{events.map((event, index) => <li key={event.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
+    <span className="flex flex-col items-center">
+      <span className={cn("icon-3d size-8 rounded-full text-[10px] font-bold", statusTone(event.to_status) === "good" ? "bg-success-soft text-success" : statusTone(event.to_status) === "bad" ? "bg-destructive-soft text-destructive" : statusTone(event.to_status) === "warn" ? "bg-warning-soft text-warning-strong" : "bg-brand-soft text-brand")}>{initialsOf(event.actor_name)}</span>
+      {index < events.length - 1 && <span aria-hidden className="mt-1 w-px flex-1 bg-border"/>}
+    </span>
+    <span className="min-w-0 pb-1">
+      <span className="flex flex-wrap items-baseline gap-x-2"><strong className="text-xs font-bold">{event.action}</strong><span className="text-[11px] text-muted-foreground">{formatMoment(event.created_at)}</span></span>
+      <span className="mt-0.5 block text-[11px] text-muted-foreground">{event.actor_name} · {event.actor_role}</span>
+      <span className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]"><StatusPill tone={event.from_status ? statusTone(event.from_status) : "neutral"}>{event.from_status ?? "New"}</StatusPill><span className="text-muted-foreground">→</span><StatusPill tone={statusTone(event.to_status)}>{event.to_status}</StatusPill></span>
+      {event.note && <span className="mt-2 block rounded-md border-l-2 border-brand bg-surface p-2 text-[11px] leading-5">{event.note}</span>}
+    </span>
   </li>)}</ol>;
 }
 
