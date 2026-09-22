@@ -287,7 +287,7 @@ function useWorkspaceData(role: Role, actorName: string) {
     const existing = responses.find((response) => response.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
     const result = await supabase.rpc("reviewvala_transition_response", {
-      _response_id: responseId, _to_status: toStatus, _note: note ?? undefined,
+      _response_id: responseId, _to_status: toStatus, ...(note ? { _note: note } : {}),
       _idempotency_key: newIdempotencyKey(responseId, toStatus, existing.version ?? 1),
     });
     if (result.error) throw result.error;
