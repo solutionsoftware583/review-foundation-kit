@@ -828,6 +828,8 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
 
         <blockquote className="mt-6 border-l-2 border-brand pl-4 text-[15px] leading-7 text-foreground">“{selected.text}”</blockquote>
 
+        <ReviewInsightPanel key={selected.id} review={selected} role={role} can={can}/>
+
         <div className="card-3d outline-glass mt-6 rounded-lg bg-card p-5">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="min-w-0">
