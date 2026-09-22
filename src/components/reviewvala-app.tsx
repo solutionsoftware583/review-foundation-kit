@@ -349,6 +349,13 @@ function LocationsSnapshot({ derived }: { derived: Derived }) { return <section 
 
 type CreateReviewInput = { name: string; source: string; location: string; rating: number; text: string };
 
+function suggestResponse(review: Review) {
+  const firstName = review.name.split(" ")[0] ?? "there";
+  if (review.rating >= 4) return `Hi ${firstName}, thank you for the ${review.rating}-star review of our ${review.location} team. We're glad the visit went well, and we've shared your words with the team. We look forward to welcoming you back.`;
+  if (review.rating === 3) return `Hi ${firstName}, thank you for the honest feedback about ${review.location}. We're glad parts of the visit worked well, and we're looking at what fell short. If you can share more detail, we'll follow up personally.`;
+  return `Hi ${firstName}, I'm sorry your experience at ${review.location} fell short. This isn't the standard we hold ourselves to. Our team is reviewing what happened, and we'd like to make it right — please reply here so we can reach you directly.`;
+}
+
 function ReviewForm({ close, createReview }: { close: () => void; createReview: (input: CreateReviewInput) => Promise<Review> }) {
   const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "" });
   const [saving, setSaving] = useState(false);
