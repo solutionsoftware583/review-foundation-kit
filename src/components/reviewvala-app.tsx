@@ -970,14 +970,54 @@ function ModulePage({ page, derived, reviews, responses, setPage, role }: { page
   const distribution = [5,4,3,2,1].map((rating) => ({ rating, count: reviews.filter((review) => review.rating === rating).length }));
   const maxCount = Math.max(1, ...distribution.map((bucket) => bucket.count));
   const showTrend = page === "Ratings" || page === "Analytics" || page === "Reports";
-  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
-    <section className="card-3d rounded-lg bg-card"><div className="flex items-center justify-between border-b p-5"><div><h2 className="font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p></div><StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill></div>
-      <div className="p-6"><div className="flex items-end gap-3"><span className="font-display text-5xl font-bold">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>
-        {showTrend ? <TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/> : <div className="my-8"><div className="grid h-36 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
-        <div className="grid gap-3 sm:grid-cols-2">{data.items.map((item) => <div key={item} className="card-3d rounded-md bg-surface p-3 text-left text-xs font-semibold">{item}</div>)}{!data.items.length && <p className="text-xs text-muted-foreground">No data recorded for this view yet.</p>}</div>
-      </div></section>
-    <aside className="space-y-4">
+  const headline: [string, string][] = [
+    ["Reviews", String(derived.totalReviews)],
+    ["Rating", derived.overallRating.toFixed(2)],
+    ["Response rate", `${derived.responseRate}%`],
+    ["Positive", `${derived.positiveShare}%`],
+  ];
+  const queue: [string, string, "good" | "warn" | "bad" | "brand" | "neutral"][] = [
+    ["Needs reply", String(derived.needsReply), derived.needsReply ? "warn" : "good"],
+    ["Escalated", String(derived.escalated), derived.escalated ? "bad" : "good"],
+    ["Unassigned", String(derived.unassigned), derived.unassigned ? "warn" : "good"],
+    ["Awaiting approval", String(derived.awaitingApproval), derived.awaitingApproval ? "brand" : "good"],
+    ["Urgent priority", String(derived.urgent), derived.urgent ? "bad" : "good"],
+  ];
+
+  return <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
+    <section className="card-3d rounded-lg bg-card">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b px-5 py-4">
+        <div className="min-w-0"><h2 className="truncate font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {derived.sources.length} channel{derived.sources.length === 1 ? "" : "s"}</p></div>
+        <StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill>
+      </div>
+      <div className="p-5 lg:p-6">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
+          <div className="min-w-0 flex items-end gap-3"><span className="font-display text-5xl font-bold leading-none">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>
+        </div>
+        <dl className="inset-3d mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg bg-surface p-4 sm:grid-cols-4">
+          {headline.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt><dd className="mt-0.5 font-display text-lg font-bold">{value}</dd></div>)}
+        </dl>
+        {showTrend
+          ? <TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/>
+          : <div className="my-6"><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Rating distribution</p><div className="mt-3 grid h-32 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
+        <p className="mt-6 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Breakdown</p>
+        <ul className="mt-2 grid gap-x-6 sm:grid-cols-2">{data.items.map((item, index) => <li key={item} className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-3 border-b border-border/70 py-2.5 last:border-0">
+          <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
+          <span className="min-w-0 text-xs font-semibold leading-5">{item}</span>
+        </li>)}{!data.items.length && <li className="py-3 text-xs text-muted-foreground">No data recorded for this view yet.</li>}</ul>
+      </div>
+    </section>
+
+    <aside className="space-y-5">
       <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><span className="icon-3d size-9 bg-sidebar-hover text-brand-bright"><Sparkles className="size-4"/></span><h2 className="mt-4 font-display text-lg font-bold">What matters now</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{data.insight}</p><Button className="mt-5 bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage(page === "Team" || page === "Settings" ? "Response Center" : "Reviews")}>{page === "Team" || page === "Settings" ? "Open Response Center" : "Open reviews"}</Button></section>
+
+      <section className="card-3d rounded-lg bg-card p-5">
+        <h2 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Open queue</h2>
+        <ul className="mt-3">{queue.map(([label, value, tone]) => <li key={label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 py-2 last:border-0">
+          <span className="min-w-0 truncate text-xs font-semibold">{label}</span><StatusPill tone={tone}>{value}</StatusPill>
+        </li>)}</ul>
+      </section>
+
       <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Quick actions</h2><div className="mt-3 grid gap-2"><Button variant="outline" className="justify-start" onClick={() => setPage("Reviews")}><Plus/>Add a review</Button><Button variant="outline" className="justify-start" onClick={() => setPage("Response Center")}><Users/>Review the response queue</Button></div></section>
     </aside>
   </div>;
