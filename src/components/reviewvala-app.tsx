@@ -39,13 +39,15 @@ import { cn } from "@/lib/utils";
 type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
 type PreviewState = "Live data" | "Loading" | "Empty" | "Error";
 
-const navGroups: { label: string; items: { name: PageKey; icon: typeof Gauge; badge?: string }[] }[] = [
+type BadgeKey = "needsReply" | "pendingResponses" | "alerts";
+
+const navGroups: { label: string; items: { name: PageKey; icon: typeof Gauge; badge?: BadgeKey }[] }[] = [
   { label: "Workspace", items: [
-    { name: "Overview", icon: LayoutDashboard }, { name: "Reviews", icon: Inbox, badge: "18" },
-    { name: "Response Center", icon: MessageSquareReply, badge: "7" }, { name: "Ratings", icon: Star },
+    { name: "Overview", icon: LayoutDashboard }, { name: "Reviews", icon: Inbox, badge: "needsReply" },
+    { name: "Response Center", icon: MessageSquareReply, badge: "pendingResponses" }, { name: "Ratings", icon: Star },
   ]},
   { label: "Intelligence", items: [
-    { name: "Analytics", icon: ChartNoAxesCombined }, { name: "Alerts", icon: Bell, badge: "3" },
+    { name: "Analytics", icon: ChartNoAxesCombined }, { name: "Alerts", icon: Bell, badge: "alerts" },
     { name: "Reports", icon: FileBarChart },
   ]},
   { label: "Manage", items: [
