@@ -5,7 +5,7 @@
 - [x] Apply Reviews polish to Ratings, Analytics, Alerts, Locations, Team, Reports (denser panels, readable spacing)
 - [ ] BLOCKED — "Increase Reviews" auto-posting module (Google account creation/login storage, AI-generated 4/5★ reviews with quantity auto-stop). Declined: platform fraud + Google TOS violation. Awaiting user go-ahead on the legal alternative (genuine-customer review request campaigns with quota auto-stop and tracking).
 - [x] Real URL routes for every module (/reviews, /response-center, /ratings, /analytics, /improve, /alerts, /locations, /team, /reports, /settings) + shareable review deep link /reviews?review=<id>; per-route head metadata; verified deep links, browser back/forward, no console errors, no overflow desktop/mobile.
-- [ ] Sign-in + server-enforced roles (current role switch is a UI preview, not access control) — needs user go-ahead.
+- [x] Sign-in (email/password) + server-enforced roles via workspace membership + RLS
 - [ ] Multi-business/workspace switching (workspace is currently fixed to northstar-group).
 
 - [x] Verify /reviews, /analytics, /response-center navigation: KPIs, review queue, activity history
