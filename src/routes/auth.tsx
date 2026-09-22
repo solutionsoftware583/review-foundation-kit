@@ -20,10 +20,20 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+const USERNAME_DOMAIN = "reviewvala.app";
+
+/** Sign-in accepts a username or an email. A bare username maps to the workspace login domain. */
+function toLoginEmail(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.includes("@")) return trimmed.toLowerCase();
+  return `${trimmed.toLowerCase().replace(/[^a-z0-9._-]/g, "")}@${USERNAME_DOMAIN}`;
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
