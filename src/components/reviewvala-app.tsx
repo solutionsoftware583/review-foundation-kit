@@ -430,6 +430,25 @@ const pageDescriptions: Record<PageKey, string> = {
   Settings: "Configure your workspace, channels, and response standards.",
 };
 
+export const PAGE_PATHS = {
+  Overview: "/",
+  Reviews: "/reviews",
+  "Response Center": "/response-center",
+  Ratings: "/ratings",
+  Analytics: "/analytics",
+  Improve: "/improve",
+  Alerts: "/alerts",
+  Locations: "/locations",
+  Team: "/team",
+  Reports: "/reports",
+  Settings: "/settings",
+} as const satisfies Record<PageKey, string>;
+
+export const pageMeta = (page: PageKey) => ({
+  title: `${page} · ReviewVala™`,
+  description: pageDescriptions[page],
+});
+
 /* ------------------------------------------------------------- primitives --- */
 
 function BrandMark({ compact = false }: { compact?: boolean }) {
