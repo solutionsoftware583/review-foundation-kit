@@ -20,10 +20,20 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+const USERNAME_DOMAIN = "reviewvala.app";
+
+/** Sign-in accepts a username or an email. A bare username maps to the workspace login domain. */
+function toLoginEmail(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.includes("@")) return trimmed.toLowerCase();
+  return `${trimmed.toLowerCase().replace(/[^a-z0-9._-]/g, "")}@${USERNAME_DOMAIN}`;
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,7 +58,7 @@ function AuthPage() {
           password,
           options: {
             emailRedirectTo: window.location.origin,
-            data: { full_name: fullName.trim() },
+            data: { full_name: fullName.trim(), username: username.trim().toLowerCase() || null },
           },
         });
         if (result.error) throw result.error;
@@ -60,7 +70,7 @@ function AuthPage() {
         await navigate({ to: "/", replace: true });
         return;
       }
-      const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const result = await supabase.auth.signInWithPassword({ email: toLoginEmail(email), password });
       if (result.error) throw result.error;
       await navigate({ to: "/", replace: true });
     } catch (caught) {
@@ -92,14 +102,36 @@ function AuthPage() {
 
         <form className="mt-6 grid gap-3" onSubmit={submit}>
           {mode === "signup" && (
-            <label className="grid gap-1 text-xs font-semibold">
-              Full name
-              <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Riya Sharma" required className="font-normal" />
-            </label>
+            <>
+              <label className="grid gap-1 text-xs font-semibold">
+                Full name
+                <Input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Riya Sharma" required className="font-normal" />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold">
+                Username
+                <Input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="riyasharma"
+                  required
+                  pattern="[A-Za-z0-9._-]{3,30}"
+                  title="3–30 letters, numbers, dot, dash or underscore"
+                  className="font-normal"
+                />
+              </label>
+            </>
           )}
           <label className="grid gap-1 text-xs font-semibold">
-            Work email
-            <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" required className="font-normal" />
+            {mode === "signin" ? "Username or work email" : "Work email"}
+            <Input
+              type={mode === "signin" ? "text" : "email"}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder={mode === "signin" ? "superadmin or you@company.com" : "you@company.com"}
+              required
+              autoComplete="username"
+              className="font-normal"
+            />
           </label>
           <label className="grid gap-1 text-xs font-semibold">
             Password
