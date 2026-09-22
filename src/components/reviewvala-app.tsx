@@ -134,6 +134,14 @@ type ResponseRecord = {
   response_status: string;
   author_name: string;
   updated_at: string;
+  version: number;
+  publish_state: string;
+  publish_attempts: number;
+  last_publish_error: string | null;
+  published_at: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  created_at: string;
 };
 
 type ResponseEvent = {
@@ -154,7 +162,7 @@ type RatingSnapshot = { id: string; channel: string; rating: number; period_labe
 // All workspace data is loaded from the connected database; nothing is hardcoded in the UI.
 
 const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at, archived_at, merged_into, source_url, external_id, first_response_at";
-const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at";
+const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at, version, publish_state, publish_attempts, last_publish_error, published_at, submitted_at, approved_at, created_at";
 
 type ReviewRow = {
   id: string; reviewer_initials: string; reviewer_name: string; source: string; location: string; rating: number;
@@ -184,18 +192,26 @@ function useWorkspaceData(role: Role, actorName: string) {
   const [notes, setNotes] = useState<ReviewNote[]>([]);
   const [snapshots, setSnapshots] = useState<RatingSnapshot[]>([]);
   const [rules, setRules] = useState<AssignmentRule[]>([]);
+  const [templates, setTemplates] = useState<ResponseTemplate[]>([]);
+  const [complianceRules, setComplianceRules] = useState<ComplianceRule[]>([]);
+  const [policies, setPolicies] = useState<ApprovalPolicy[]>([]);
+  const [targets, setTargets] = useState<PublishTarget[]>([]);
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const refresh = useCallback(async () => {
     setDataStatus("loading");
     try {
-      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult, ruleResult] = await Promise.all([
+      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult, ruleResult, templateResult, complianceResult, policyResult, targetResult] = await Promise.all([
         supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
         supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
         supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
         supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
         supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
         supabase.from("reviewvala_assignment_rules").select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
+        supabase.from("reviewvala_response_templates").select("id, name, category, tone, body, min_rating, max_rating, platform, is_active, created_by_name").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_compliance_rules").select("id, name, kind, value, severity, guidance, is_active").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_approval_policies").select("id, name, position, min_rating, max_rating, match_priority, required_role, require_second_approval, auto_publish, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
+        supabase.from("reviewvala_publish_targets").select("id, platform, mode, character_limit, max_attempts, is_enabled, notes").eq("workspace_slug", WORKSPACE).order("platform", { ascending: true }),
       ]);
 
       const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
@@ -211,6 +227,10 @@ function useWorkspaceData(role: Role, actorName: string) {
       setNotes(noteResult.data ?? []);
       setSnapshots(snapshotResult.data ?? []);
       setRules((ruleResult.data ?? []) as AssignmentRule[]);
+      setTemplates((templateResult.data ?? []) as ResponseTemplate[]);
+      setComplianceRules((complianceResult.data ?? []) as ComplianceRule[]);
+      setPolicies((policyResult.data ?? []) as ApprovalPolicy[]);
+      setTargets((targetResult.data ?? []) as PublishTarget[]);
       setDataStatus("ready");
     } catch (caught) {
       console.error(caught);
@@ -235,15 +255,22 @@ function useWorkspaceData(role: Role, actorName: string) {
   const saveDraft = useCallback(async (reviewId: string, responseText: string) => {
     const existing = responses.find((response) => response.review_id === reviewId);
     if (existing) {
-      const result = await supabase.from("reviewvala_responses").update({ response_text: responseText, response_status: "Draft" }).eq("id", existing.id).select(RESPONSE_COLUMNS).single();
+      const nextVersion = (existing.version ?? 1) + 1;
+      const result = await supabase.from("reviewvala_responses").update({
+        response_text: responseText, response_status: "Draft", version: nextVersion,
+        publish_state: existing.publish_state === "Failed" ? "Not published" : existing.publish_state,
+        last_publish_error: null,
+      }).eq("id", existing.id).select(RESPONSE_COLUMNS).single();
       if (result.error) throw result.error;
       applyResponse(result.data);
-      await logEvent(existing.id, "Draft saved", existing.response_status, "Draft");
+      await supabase.from("reviewvala_response_versions").insert({ response_id: existing.id, version: nextVersion, body: responseText, author_name: actorName, status_at_save: "Draft" });
+      await logEvent(existing.id, "Draft saved", existing.response_status, "Draft", `Version ${nextVersion} saved`);
       return result.data;
     }
     const result = await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft", author_name: actorName }).select(RESPONSE_COLUMNS).single();
     if (result.error) throw result.error;
     applyResponse(result.data);
+    await supabase.from("reviewvala_response_versions").insert({ response_id: result.data.id, version: 1, body: responseText, author_name: actorName, status_at_save: "Draft" });
     // First draft stops the reply clock for SLA reporting.
     const stamped = await supabase.from("reviewvala_reviews").update({ first_response_at: new Date().toISOString() }).eq("id", reviewId).is("first_response_at", null).select(REVIEW_COLUMNS).maybeSingle();
     if (stamped.data) { const mapped = mapReview(stamped.data); setWorkspaceReviews((current) => current.map((review) => review.id === reviewId ? mapped : review)); }
@@ -251,15 +278,25 @@ function useWorkspaceData(role: Role, actorName: string) {
     return result.data;
   }, [applyResponse, logEvent, responses]);
 
-  const moveResponse = useCallback(async (responseId: string, toStatus: string, action: string, note?: string) => {
+  // Every status change runs through one database routine: it checks the move is
+  // allowed, checks the caller's role, records history and stamps times in a single
+  // transaction. The idempotency key makes a repeated click a no-op.
+  const moveResponse = useCallback(async (responseId: string, toStatus: string, _action: string, note?: string) => {
     const existing = responses.find((response) => response.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
-    const result = await supabase.from("reviewvala_responses").update({ response_status: toStatus }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+    const result = await supabase.rpc("reviewvala_transition_response", {
+      _response_id: responseId, _to_status: toStatus, _note: note ?? undefined,
+      _idempotency_key: newIdempotencyKey(responseId, toStatus, existing.version ?? 1),
+    });
     if (result.error) throw result.error;
-    applyResponse(result.data);
-    await logEvent(responseId, action, existing.response_status, toStatus, note);
-    return result.data;
-  }, [applyResponse, logEvent, responses]);
+    const record = result.data as unknown as ResponseRecord;
+    applyResponse(record);
+    const eventResult = await supabase.from("reviewvala_response_events")
+      .select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at")
+      .eq("response_id", responseId).order("created_at", { ascending: true });
+    if (eventResult.data) setEvents((current) => [...current.filter((event) => event.response_id !== responseId), ...eventResult.data]);
+    return record;
+  }, [applyResponse, responses]);
 
   const submitForApproval = useCallback((responseId: string) => moveResponse(responseId, "Pending approval", "Submitted for approval"), [moveResponse]);
   const approveResponse = useCallback((responseId: string) => moveResponse(responseId, "Approved", "Approved"), [moveResponse]);
@@ -270,11 +307,23 @@ function useWorkspaceData(role: Role, actorName: string) {
     const existing = responses.find((item) => item.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
     if (existing.response_status !== "Approved") throw new Error("Only approved responses can be published.");
-    await moveResponse(responseId, "Published", "Published internally");
-    const reviewResult = await supabase.from("reviewvala_reviews").update({ status: "Replied" }).eq("id", existing.review_id).select(REVIEW_COLUMNS).single();
-    if (reviewResult.error) throw reviewResult.error;
-    setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapReview(reviewResult.data) : review));
-  }, [moveResponse, responses]);
+    try {
+      await moveResponse(responseId, "Published", "Published internally");
+    } catch (caught) {
+      // Record the failed attempt so the response can be retried from the queue.
+      const reason = caught instanceof Error ? caught.message : "Publishing failed";
+      const failed = await supabase.from("reviewvala_responses").update({
+        publish_state: "Failed", publish_attempts: (existing.publish_attempts ?? 0) + 1, last_publish_error: reason,
+      }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+      if (failed.data) applyResponse(failed.data);
+      throw caught;
+    }
+    const reviewResult = await supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("id", existing.review_id).single();
+    if (reviewResult.data) {
+      const mapped = mapReview(reviewResult.data);
+      setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapped : review));
+    }
+  }, [applyResponse, moveResponse, responses]);
 
   const updateReview = useCallback(async (reviewId: string, patch: ReviewPatch) => {
     const result = await supabase.from("reviewvala_reviews").update(patch).eq("id", reviewId).select(REVIEW_COLUMNS).single();
