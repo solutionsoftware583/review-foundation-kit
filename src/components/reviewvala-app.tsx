@@ -180,6 +180,70 @@ function useWorkspaceData() {
   return { reviews: workspaceReviews, responses, snapshots, dataStatus, saveResponse, approveResponse, publishResponse, createReview };
 }
 
+type Derived = ReturnType<typeof deriveWorkspace>;
+
+function average(values: number[]) {
+  if (!values.length) return 0;
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapshots: RatingSnapshot[]) {
+  const totalReviews = reviews.length;
+  const needsReply = reviews.filter((review) => review.status === "Needs reply").length;
+  const escalated = reviews.filter((review) => review.status === "Escalated").length;
+  const replied = reviews.filter((review) => review.status === "Replied").length;
+  const positive = reviews.filter((review) => review.sentiment === "Positive").length;
+  const pendingResponses = responses.filter((response) => response.response_status !== "Published").length;
+  const overallRating = average(reviews.map((review) => review.rating));
+  const responseRate = totalReviews ? Math.round((replied / totalReviews) * 100) : 0;
+  const positiveShare = totalReviews ? Math.round((positive / totalReviews) * 100) : 0;
+
+  const periods: string[] = [];
+  for (const snapshot of snapshots) if (!periods.includes(snapshot.period_label)) periods.push(snapshot.period_label);
+  const trend = periods.map((period) => average(snapshots.filter((snapshot) => snapshot.period_label === period).map((snapshot) => Number(snapshot.rating))));
+
+  const channelNames: string[] = [];
+  for (const snapshot of snapshots) if (!channelNames.includes(snapshot.channel)) channelNames.push(snapshot.channel);
+  const channels = channelNames.map((channel) => {
+    const series = snapshots.filter((snapshot) => snapshot.channel === channel).map((snapshot) => Number(snapshot.rating));
+    const latest = series[series.length - 1] ?? 0;
+    const first = series[0] ?? latest;
+    return { channel, latest, change: latest - first };
+  });
+
+  const locationNames: string[] = [];
+  for (const review of reviews) if (!locationNames.includes(review.location)) locationNames.push(review.location);
+  const locations = locationNames.map((name) => {
+    const scoped = reviews.filter((review) => review.location === name);
+    const score = average(scoped.map((review) => review.rating));
+    return { name, score, reviews: scoped.length, needsReply: scoped.filter((review) => review.status === "Needs reply").length };
+  }).sort((a, b) => b.score - a.score);
+
+  const sourceNames: string[] = [];
+  for (const review of reviews) if (!sourceNames.includes(review.source)) sourceNames.push(review.source);
+  const sources = sourceNames.map((source) => {
+    const scoped = reviews.filter((review) => review.source === source);
+    return { source, count: scoped.length, score: average(scoped.map((review) => review.rating)) };
+  }).sort((a, b) => b.count - a.count);
+
+  const authorNames: string[] = [];
+  for (const response of responses) if (!authorNames.includes(response.author_name)) authorNames.push(response.author_name);
+  const teammates = authorNames.map((name) => ({
+    name,
+    drafted: responses.filter((response) => response.author_name === name).length,
+    published: responses.filter((response) => response.author_name === name && response.response_status === "Published").length,
+  }));
+
+  const alerts = [
+    ...reviews.filter((review) => review.status === "Escalated").map((review) => ({ tone: "bad" as const, title: `Escalated ${review.rating}-star review from ${review.name}`, meta: `${review.location} · ${review.source} · ${review.time}` })),
+    ...reviews.filter((review) => review.rating <= 2 && review.status !== "Escalated").map((review) => ({ tone: "bad" as const, title: `${review.rating}-star review needs attention`, meta: `${review.name} · ${review.location}` })),
+    ...reviews.filter((review) => review.status === "Needs reply" && review.rating >= 3).map((review) => ({ tone: "warn" as const, title: `Awaiting a reply to ${review.name}`, meta: `${review.source} · ${review.time}` })),
+    ...responses.filter((response) => response.response_status === "Pending approval").map((response) => ({ tone: "brand" as const, title: `${response.author_name} requested response approval`, meta: "Response Center" })),
+  ];
+
+  return { totalReviews, needsReply, escalated, replied, pendingResponses, overallRating, responseRate, positiveShare, periods, trend, channels, locations, sources, teammates, alerts };
+}
+
 const pageDescriptions: Record<PageKey, string> = {
   Overview: "Your reputation, response health, and priorities at a glance.",
   Reviews: "Read, route, and resolve every customer conversation in one place.",
