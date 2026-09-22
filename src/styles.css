@@ -204,15 +204,87 @@
     border-color: var(--color-border);
   }
 
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     background-color: var(--color-background);
+    background-image:
+      radial-gradient(900px 500px at 12% -10%, oklch(0.505 0.152 166 / 7%), transparent 70%),
+      radial-gradient(800px 460px at 100% 0%, oklch(0.775 0.165 74 / 6%), transparent 70%);
+    background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
-    letter-spacing: 0;
+    font-feature-settings: "ss01", "cv05", "tnum" 0;
+    letter-spacing: -0.005em;
     margin: 0;
   }
 
+  h1, h2, h3, .font-display { letter-spacing: -0.02em; }
+
   button, input, textarea, select { font: inherit; }
+}
+
+/* Raised, tactile card surface used across every workspace screen. */
+@utility card-3d {
+  position: relative;
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  box-shadow: var(--shadow-3d);
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 220ms ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-3d-hover);
+  }
+}
+
+/* Frosted outline used for overlays, popovers and elevated panels. */
+@utility glass {
+  background: color-mix(in oklab, var(--color-card) 74%, transparent);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid color-mix(in oklab, var(--color-brand) 16%, oklch(1 0 0 / 55%));
+  box-shadow: var(--shadow-3d);
+}
+
+/* Thin luminous outline, layered over cards and pills. */
+@utility outline-glass {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    border: 1px solid oklch(1 0 0 / 60%);
+    mask-image: linear-gradient(to bottom, oklch(0 0 0) 0%, transparent 60%);
+  }
+}
+
+/* Sculpted icon chip: dimensional highlight, body gradient and drop shadow. */
+@utility icon-3d {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background-image: linear-gradient(160deg, oklch(1 0 0 / 55%), transparent 55%);
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 70%) inset,
+    0 -2px 3px oklch(0.16 0.02 174 / 12%) inset,
+    0 6px 12px -6px oklch(0.16 0.02 174 / 45%);
+
+  & svg {
+    filter: drop-shadow(0 1px 0 oklch(1 0 0 / 65%)) drop-shadow(0 2px 3px oklch(0.16 0.02 174 / 30%));
+  }
+}
+
+/* Pressed / recessed surface for wells and inputs. */
+@utility inset-3d {
+  box-shadow: var(--shadow-inset-3d);
 }
 
 @media (prefers-reduced-motion: reduce) {
