@@ -81,12 +81,7 @@ type RatingSnapshot = {
   period_label: string;
 };
 
-const fallbackReviews: Review[] = [
-  { id: "fallback-1", initials: "AK", name: "Aarav Kapoor", source: "Google", location: "Indiranagar, Bengaluru", rating: 5, time: "18 min ago", status: "Needs reply", sentiment: "Positive", text: "The onboarding was effortless and the support team explained everything clearly. Priya was especially patient and helpful." },
-  { id: "fallback-2", initials: "SM", name: "Sofia Martinez", source: "Trustpilot", location: "SoHo, New York", rating: 3, time: "1 hr ago", status: "Assigned", sentiment: "Mixed", text: "Good product overall, but I waited longer than expected for an update on my request." },
-  { id: "fallback-3", initials: "JL", name: "James Liu", source: "Facebook", location: "Shoreditch, London", rating: 1, time: "3 hrs ago", status: "Escalated", sentiment: "Negative", text: "My issue is still unresolved after two conversations. I need someone to take ownership." },
-  { id: "fallback-4", initials: "NP", name: "Nina Patel", source: "Google", location: "Indiranagar, Bengaluru", rating: 5, time: "Yesterday", status: "Replied", sentiment: "Positive", text: "Fast, thoughtful and genuinely friendly service. Would recommend to any growing business." },
-];
+// All review data is loaded from the database; nothing is hardcoded in the UI.
 
 function mapReview(row: {
   id: string;
@@ -104,7 +99,7 @@ function mapReview(row: {
 }
 
 function useWorkspaceData() {
-  const [workspaceReviews, setWorkspaceReviews] = useState<Review[]>(fallbackReviews);
+  const [workspaceReviews, setWorkspaceReviews] = useState<Review[]>([]);
   const [responses, setResponses] = useState<ResponseRecord[]>([]);
   const [snapshots, setSnapshots] = useState<RatingSnapshot[]>([]);
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
