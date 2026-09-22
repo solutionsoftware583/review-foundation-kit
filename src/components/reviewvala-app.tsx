@@ -755,10 +755,10 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
       <Field label="Priority"><Select value={form.priority} onChange={(value) => update({ priority: value })} options={PRIORITIES}/></Field>
       <Field label="Assigned team member"><Select value={form.assignee} onChange={(value) => update({ assignee: value })} options={["", ...TEAM_MEMBERS]}/></Field>
     </div>
-    <label className="mt-4 grid gap-1.5 text-xs font-semibold">Review text<textarea required value={form.text} onChange={(event) => update({ text: event.target.value })} placeholder="What did the customer share?" className="inset-3d min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring"/></label>
+    <Field label="Review text"><textarea required value={form.text} onChange={(event) => update({ text: event.target.value })} placeholder="What did the customer share?" className="inset-3d mt-0 min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring"/></Field>
     {error && <p role="alert" className="mt-3 rounded-md bg-destructive-soft p-3 text-xs font-semibold text-destructive">{error}</p>}
     <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={close}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Create review"}</Button></div>
-  </form></div>;
+  </form></Overlay>;
 }
 
 type ReviewFilters = { query: string; status: string; source: string; rating: string; sentiment: string; location: string; priority: string; assignment: string; from: string; sort: string };
