@@ -8,7 +8,8 @@
 - [ ] Sign-in + server-enforced roles (current role switch is a UI preview, not access control) — needs user go-ahead.
 - [ ] Multi-business/workspace switching (workspace is currently fixed to northstar-group).
 
-- [ ] Verify /reviews, /analytics, /response-center navigation: KPIs, review queue, activity history
-- [ ] Real workspace + business + user tables so data moves off the fixed northstar-group prototype workspace
+- [x] Verify /reviews, /analytics, /response-center navigation: KPIs, review queue, activity history
+- [x] Real workspace + business + user tables (workspaces + businesses tables, name/locations read live)
+- [ ] Multi-workspace switching (create a second workspace and switch between them)
 - [x] AI analysis: actor derived from authenticated member (client author input removed)
-- [ ] AI analysis: validate supplied review ID belongs to the caller workspace
+- [x] AI analysis: validate supplied review ID belongs to the caller workspace
