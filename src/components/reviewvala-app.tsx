@@ -896,7 +896,7 @@ function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: stri
   });
 }
 
-function ResponseVersions({ responseId, refreshKey, onRestore }: { responseId: string; refreshKey: number; onRestore?: (body: string) => void }) {
+function ResponseVersions({ responseId, refreshKey, onRestore }: { responseId: string; refreshKey: number; onRestore?: ((body: string) => void) | undefined }) {
   const [versions, setVersions] = useState<{ id: string; version: number; body: string; author_name: string; created_at: string }[]>([]);
   const [open, setOpen] = useState(false);
 
