@@ -13,3 +13,5 @@
 - [ ] Multi-workspace switching (create a second workspace and switch between them)
 - [x] AI analysis: actor derived from authenticated member (client author input removed)
 - [x] AI analysis: validate supplied review ID belongs to the caller workspace
+
+- [x] Invite links + offboarding (Remove), user profile page, business/location selector, audit log, timezone/locale settings
