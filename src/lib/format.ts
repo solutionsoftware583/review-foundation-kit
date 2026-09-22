@@ -2,7 +2,7 @@
 let displayLocale: string | undefined;
 let displayTimeZone: string | undefined;
 
-export function setDisplayFormat(next: { locale?: string | null; timeZone?: string | null }) {
+export function setDisplayFormat(next: { locale?: string | null | undefined; timeZone?: string | null | undefined }) {
   displayLocale = next.locale || undefined;
   displayTimeZone = next.timeZone || undefined;
 }
