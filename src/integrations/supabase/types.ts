@@ -14,7 +14,119 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      reviewvala_rating_snapshots: {
+        Row: {
+          channel: string
+          created_at: string
+          id: string
+          period_label: string
+          rating: number
+          workspace_slug: string
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          id?: string
+          period_label: string
+          rating: number
+          workspace_slug?: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          id?: string
+          period_label?: string
+          rating?: number
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
+      reviewvala_responses: {
+        Row: {
+          author_name: string
+          created_at: string
+          id: string
+          response_status: string
+          response_text: string
+          review_id: string
+          updated_at: string
+        }
+        Insert: {
+          author_name?: string
+          created_at?: string
+          id?: string
+          response_status?: string
+          response_text: string
+          review_id: string
+          updated_at?: string
+        }
+        Update: {
+          author_name?: string
+          created_at?: string
+          id?: string
+          response_status?: string
+          response_text?: string
+          review_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_responses_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reviewvala_reviews: {
+        Row: {
+          created_at: string
+          id: string
+          location: string
+          rating: number
+          review_text: string
+          reviewer_initials: string
+          reviewer_name: string
+          sentiment: string
+          source: string
+          status: string
+          time_label: string
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location: string
+          rating: number
+          review_text: string
+          reviewer_initials: string
+          reviewer_name: string
+          sentiment?: string
+          source: string
+          status?: string
+          time_label: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location?: string
+          rating?: number
+          review_text?: string
+          reviewer_initials?: string
+          reviewer_name?: string
+          sentiment?: string
+          source?: string
+          status?: string
+          time_label?: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
