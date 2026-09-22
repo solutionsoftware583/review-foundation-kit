@@ -749,7 +749,7 @@ function LocationsSnapshot({ derived }: { derived: Derived }) {
 
 /* ----------------------------------------------------------------- reviews --- */
 
-type CreateReviewInput = { name: string; source: string; location: string; rating: number; text: string; reviewDate: string; sentiment: string; priority: string; assignee: string };
+type CreateReviewInput = { name: string; source: string; location: string; rating: number; text: string; reviewDate: string; sentiment: string; priority: string; assignee: string; sourceUrl: string; externalId: string };
 
 function suggestResponse(review: Review) {
   const firstName = review.name.split(" ")[0] ?? "there";
@@ -764,7 +764,7 @@ function todayISO() {
 
 function ReviewForm({ close, createReview }: { close: () => void; createReview: (input: CreateReviewInput) => Promise<Review> }) {
   const { workspaceName } = useSession();
-  const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "", reviewDate: todayISO(), sentiment: "Positive", priority: "Normal", assignee: "" });
+  const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "", reviewDate: todayISO(), sentiment: "Positive", priority: "Normal", assignee: "", sourceUrl: "", externalId: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const update = (patch: Partial<CreateReviewInput>) => setForm((current) => ({ ...current, ...patch }));
@@ -789,6 +789,8 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
       <Field label="Sentiment"><Select value={form.sentiment} onChange={(value) => update({ sentiment: value })} options={SENTIMENTS}/></Field>
       <Field label="Priority"><Select value={form.priority} onChange={(value) => update({ priority: value })} options={PRIORITIES}/></Field>
       <Field label="Assigned team member"><Select value={form.assignee} onChange={(value) => update({ assignee: value })} options={["", ...TEAM_MEMBERS]}/></Field>
+      <Field label="Original review link"><Input value={form.sourceUrl} onChange={(event) => update({ sourceUrl: event.target.value })} placeholder="https://maps.google.com/…" className="font-normal"/></Field>
+      <Field label="Platform review id"><Input value={form.externalId} onChange={(event) => update({ externalId: event.target.value })} placeholder="Optional reference" className="font-normal"/></Field>
     </div>
     <div className="mt-4"><Field label="Review text"><textarea required value={form.text} onChange={(event) => update({ text: event.target.value })} placeholder="What did the customer share?" className="inset-3d mt-0 min-h-28 resize-none rounded-md border bg-background p-3 text-sm font-normal leading-6 outline-none focus:ring-2 focus:ring-ring"/></Field></div>
     {error && <p role="alert" className="mt-3 rounded-md bg-destructive-soft p-3 text-xs font-semibold text-destructive">{error}</p>}
@@ -796,14 +798,24 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
   </form></Overlay>;
 }
 
-type ReviewFilters = { query: string; status: string; source: string; rating: string; sentiment: string; location: string; priority: string; assignment: string; from: string; sort: string };
+type ReviewFilters = {
+  query: string; status: string; source: string; rating: string; sentiment: string; location: string;
+  priority: string; assignment: string; from: string; sort: string; scope: string; sla: string;
+};
 
-const EMPTY_FILTERS: ReviewFilters = { query: "", status: "All", source: "All", rating: "All", sentiment: "All", location: "All", priority: "All", assignment: "All", from: "", sort: "Newest" };
+const EMPTY_FILTERS: ReviewFilters = { query: "", status: "All", source: "All", rating: "All", sentiment: "All", location: "All", priority: "All", assignment: "All", from: "", sort: "Newest", scope: "Active", sla: "All" };
+
+const PAGE_SIZE = 20;
+
+type SavedView = { id: string; name: string; is_shared: boolean; owner_user_id: string; owner_name: string; filters: ReviewFilters };
 
 function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: string) {
   const query = filters.query.trim().toLowerCase();
   const filtered = reviews.filter((review) => {
-    if (query && ![review.name, review.text, review.location, review.source, review.status, review.assignee ?? ""].join(" ").toLowerCase().includes(query)) return false;
+    if (filters.scope === "Active" && (review.archivedAt || review.mergedInto)) return false;
+    if (filters.scope === "Archived" && !review.archivedAt) return false;
+    if (filters.scope === "Duplicates" && !review.mergedInto) return false;
+    if (query && ![review.name, review.text, review.location, review.source, review.status, review.assignee ?? "", review.externalId ?? ""].join(" ").toLowerCase().includes(query)) return false;
     if (filters.status !== "All" && review.status !== filters.status) return false;
     if (filters.source !== "All" && review.source !== filters.source) return false;
     if (filters.rating !== "All" && review.rating !== Number(filters.rating)) return false;
@@ -813,6 +825,12 @@ function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: stri
     if (filters.assignment === "Assigned to me" && review.assignee !== actorName) return false;
     if (filters.assignment === "Unassigned" && review.assignee) return false;
     if (filters.from && review.reviewDate < filters.from) return false;
+    if (filters.sla !== "All") {
+      const sla = slaInfo(review);
+      if (filters.sla === "Overdue" && !(sla.breached && !review.firstResponseAt)) return false;
+      if (filters.sla === "Due soon" && !(sla.tone === "warn")) return false;
+      if (filters.sla === "Within target" && !(sla.tone === "good")) return false;
+    }
     return true;
   });
   const order = { Urgent: 0, High: 1, Normal: 2, Low: 3 } as Record<string, number>;
@@ -821,6 +839,7 @@ function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: stri
     if (filters.sort === "Lowest rating") return a.rating - b.rating;
     if (filters.sort === "Highest rating") return b.rating - a.rating;
     if (filters.sort === "Priority") return (order[a.priority] ?? 9) - (order[b.priority] ?? 9);
+    if (filters.sort === "SLA due first") return slaInfo(a).minutesLeft - slaInfo(b).minutesLeft;
     return b.createdAt.localeCompare(a.createdAt);
   });
 }
@@ -841,17 +860,19 @@ function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
   </li>)}</ol>;
 }
 
-function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, saveDraft, submitForApproval, updateReview, addNote, createReview }: {
+function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, saveDraft, submitForApproval, updateReview, updateReviews, addNote, createReview }: {
   reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; notes: ReviewNote[]; focusId: string | null; role: Role;
   can: (permission: Permission) => boolean;
   saveDraft: (reviewId: string, text: string) => Promise<ResponseRecord>;
   submitForApproval: (responseId: string) => Promise<ResponseRecord>;
-  updateReview: (reviewId: string, patch: { status?: string; priority?: string; assignee?: string | null }) => Promise<Review>;
+  updateReview: (reviewId: string, patch: ReviewPatch) => Promise<Review>;
+  updateReviews: (reviewIds: string[], patch: ReviewPatch) => Promise<Review[]>;
   addNote: (reviewId: string, note: string) => Promise<ReviewNote>;
   createReview: (input: CreateReviewInput) => Promise<Review>;
 }) {
-  const { actorName } = useSession();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { actorName, user } = useSession();
+  const navigate = useNavigate();
+  const [selectedId, setSelectedId] = useState<string | null>(focusId);
   const [reply, setReply] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -859,20 +880,45 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
   const [noteDraft, setNoteDraft] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ReviewFilters>(EMPTY_FILTERS);
+  const [page, setPage] = useState(0);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [viewName, setViewName] = useState("");
+  const [viewFormOpen, setViewFormOpen] = useState(false);
+  const [shareView, setShareView] = useState(false);
+  const [mergeMode, setMergeMode] = useState(false);
 
-  const visible = useMemo(() => applyFilters(reviews, filters, actorName), [reviews, filters, actorName]);
-  const selected = reviews.find((review) => review.id === selectedId) ?? visible[0] ?? reviews[0] ?? null;
+  const loadViews = useCallback(async () => {
+    const result = await supabase.from("reviewvala_saved_views").select("id, name, is_shared, owner_user_id, owner_name, filters").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true });
+    if (result.error) { console.error(result.error); return; }
+    setViews((result.data ?? []) as SavedView[]);
+  }, []);
+  useEffect(() => { void loadViews(); }, [loadViews]);
+
+  const matching = useMemo(() => applyFilters(reviews, filters, actorName), [reviews, filters, actorName]);
+  useEffect(() => { setPage(0); setPicked([]); }, [filters]);
+  const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visible = matching.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE);
+  const selected = reviews.find((review) => review.id === selectedId) ?? visible[0] ?? matching[0] ?? reviews[0] ?? null;
 
   useEffect(() => { if (focusId && reviews.some((review) => review.id === focusId)) setSelectedId(focusId); }, [focusId, reviews]);
 
+  const openReview = (review: Review) => { setSelectedId(review.id); void navigate({ to: "/reviews/$reviewId", params: { reviewId: review.id } }); };
+
   const currentResponse = selected ? responses.find((response) => response.review_id === selected.id) : undefined;
-  useEffect(() => { setReply(currentResponse?.response_text ?? ""); setMessage(""); }, [currentResponse?.id, currentResponse?.response_text, selected?.id]);
+  useEffect(() => { setReply(currentResponse?.response_text ?? ""); setMessage(""); setMergeMode(false); }, [currentResponse?.id, currentResponse?.response_text, selected?.id]);
 
   if (!selected) return <><StatePanel state="Empty" onCreate={can("createReview") ? () => setFormOpen(true) : undefined}/>{formOpen && <ReviewForm close={() => setFormOpen(false)} createReview={async (input) => { const created = await createReview(input); setSelectedId(created.id); return created; }}/>}</>;
 
   const selectedNotes = notes.filter((note) => note.review_id === selected.id);
   const selectedEvents = currentResponse ? events.filter((event) => event.response_id === currentResponse.id) : [];
   const locations = Array.from(new Set(reviews.map((review) => review.location)));
+  const sla = slaInfo(selected);
+  const duplicateOf = selected.mergedInto ? reviews.find((review) => review.id === selected.mergedInto) ?? null : null;
+  const duplicates = reviews.filter((review) => review.mergedInto === selected.id);
+  const permalink = externalPermalink(selected);
+  const overdueCount = reviews.filter((review) => !review.archivedAt && !review.mergedInto && !review.firstResponseAt && slaInfo(review).breached).length;
 
   const run = async (action: () => Promise<unknown>, success: string) => {
     setSaving(true); setMessage("");
@@ -881,6 +927,28 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
     finally { setSaving(false); }
   };
 
+  const bulk = (patch: ReviewPatch, success: string) => void run(async () => { await updateReviews(picked, patch); setPicked([]); }, success);
+
+  const saveView = async () => {
+    if (!user || !viewName.trim()) return;
+    const result = await supabase.from("reviewvala_saved_views").insert({
+      workspace_slug: WORKSPACE, owner_user_id: user.id, owner_name: actorName,
+      name: viewName.trim(), is_shared: shareView, filters,
+    });
+    if (result.error) { setMessage(result.error.message); return; }
+    setViewName(""); setViewFormOpen(false); setShareView(false);
+    await loadViews();
+    setMessage("View saved.");
+  };
+
+  const deleteView = async (view: SavedView) => {
+    const result = await supabase.from("reviewvala_saved_views").delete().eq("id", view.id);
+    if (result.error) { setMessage(result.error.message); return; }
+    await loadViews();
+  };
+
+  const togglePick = (id: string) => setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+
   return <><div className="grid min-h-[calc(100vh-150px)] items-start gap-5 xl:grid-cols-[minmax(340px,.85fr)_minmax(480px,1.4fr)]">
     <section className="card-3d overflow-hidden rounded-lg bg-card xl:sticky xl:top-4">
       <div className="border-b p-3">
@@ -888,9 +956,30 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
           <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground"/><Input className="inset-3d pl-9" value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search reviews"/></div>
           {can("createReview") && <Button onClick={() => setFormOpen(true)} size="icon" aria-label="Add review"><Plus/></Button>}
           <IconButton label={filtersOpen ? "Hide filters" : "Show filters"} onClick={() => setFiltersOpen(!filtersOpen)} className="border"><Filter/></IconButton>
-          <IconButton label="Reset filters" onClick={() => setFilters(EMPTY_FILTERS)} className="border"><RotateCcw/></IconButton>
+          <IconButton label="Reset filters" onClick={() => { setFilters(EMPTY_FILTERS); setPicked([]); }} className="border"><RotateCcw/></IconButton>
         </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {["Active", "Archived", "Duplicates", "All"].map((scope) => <button key={scope} onClick={() => setFilters({ ...filters, scope })}><StatusPill tone={filters.scope === scope ? "brand" : "neutral"}>{scope}</StatusPill></button>)}
+          {overdueCount > 0 && <button onClick={() => setFilters({ ...EMPTY_FILTERS, sla: "Overdue", sort: "SLA due first" })}><StatusPill tone="bad">{overdueCount} past SLA</StatusPill></button>}
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Views</span>
+          {views.map((view) => <span key={view.id} className="flex items-center gap-1">
+            <button onClick={() => setFilters({ ...EMPTY_FILTERS, ...view.filters })} className="outline-glass rounded-full bg-surface px-2 py-1 text-[11px] font-semibold">{view.name}{view.is_shared ? " · shared" : ""}</button>
+            {view.owner_user_id === user?.id && <IconButton label={`Delete view ${view.name}`} onClick={() => void deleteView(view)}><Trash2 className="size-3"/></IconButton>}
+          </span>)}
+          <Button variant="ghost" size="sm" onClick={() => setViewFormOpen(!viewFormOpen)}><Save/>Save view</Button>
+        </div>
+        {viewFormOpen && <div className="mt-2 grid gap-2 rounded-md border bg-surface p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+          <Field label="View name"><Input value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Urgent · Bengaluru" className="font-normal"/></Field>
+          <label className="flex items-center gap-2 text-[11px] font-semibold"><input type="checkbox" checked={shareView} onChange={(event) => setShareView(event.target.checked)}/>Share with team</label>
+          <Button size="sm" disabled={!viewName.trim()} onClick={() => void saveView()}>Save</Button>
+        </div>}
+
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">{["All", ...REVIEW_STATUSES].map((item) => <button key={item} onClick={() => setFilters({ ...filters, status: item })}><StatusPill tone={filters.status === item ? "brand" : "neutral"}>{item} {item === "All" ? reviews.length : reviews.filter((review) => review.status === item).length}</StatusPill></button>)}</div>
+
         {filtersOpen && <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <Field label="Platform"><Select value={filters.source} onChange={(value) => setFilters({ ...filters, source: value })} options={["All", ...SOURCES]}/></Field>
           <Field label="Rating"><Select value={filters.rating} onChange={(value) => setFilters({ ...filters, rating: value })} options={["All","5","4","3","2","1"]}/></Field>
@@ -898,20 +987,57 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
           <Field label="Location"><Select value={filters.location} onChange={(value) => setFilters({ ...filters, location: value })} options={["All", ...locations]}/></Field>
           <Field label="Priority"><Select value={filters.priority} onChange={(value) => setFilters({ ...filters, priority: value })} options={["All", ...PRIORITIES]}/></Field>
           <Field label="Assignment"><Select value={filters.assignment} onChange={(value) => setFilters({ ...filters, assignment: value })} options={["All","Assigned to me","Unassigned"]}/></Field>
+          <Field label="Reply target"><Select value={filters.sla} onChange={(value) => setFilters({ ...filters, sla: value })} options={["All","Overdue","Due soon","Within target"]}/></Field>
           <Field label="From date"><Input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} className="font-normal"/></Field>
-          <Field label="Sort by"><Select value={filters.sort} onChange={(value) => setFilters({ ...filters, sort: value })} options={["Newest","Oldest","Lowest rating","Highest rating","Priority"]}/></Field>
+          <Field label="Sort by"><Select value={filters.sort} onChange={(value) => setFilters({ ...filters, sort: value })} options={["Newest","Oldest","Lowest rating","Highest rating","Priority","SLA due first"]}/></Field>
+        </div>}
+
+        {picked.length > 0 && <div className="mt-3 grid gap-2 rounded-md border border-brand bg-brand-soft/50 p-3">
+          <div className="flex items-center justify-between text-[11px] font-semibold"><span>{picked.length} selected</span><button onClick={() => setPicked([])} className="underline">Clear</button></div>
+          {can("manageReview") ? <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Assign to"><Select value="" onChange={(value) => bulk({ assignee: value || null, status: value ? "Assigned" : "Needs reply" }, value ? `Assigned ${picked.length} review(s) to ${value}.` : "Assignment cleared.")} options={["", ...TEAM_MEMBERS]} disabled={saving}/></Field>
+            <Field label="Set status"><Select value="" onChange={(value) => value && bulk({ status: value }, `Status set to ${value}.`)} options={["", ...REVIEW_STATUSES]} disabled={saving}/></Field>
+            <Field label="Set priority"><Select value="" onChange={(value) => value && bulk({ priority: value }, `Priority set to ${value}.`)} options={["", ...PRIORITIES]} disabled={saving}/></Field>
+            <div className="flex flex-wrap items-end gap-2">
+              <Button variant="outline" size="sm" disabled={saving} onClick={() => bulk({ archived_at: new Date().toISOString() }, `${picked.length} review(s) archived.`)}><Archive/>Archive</Button>
+              <Button variant="outline" size="sm" disabled={saving} onClick={() => bulk({ archived_at: null }, `${picked.length} review(s) restored.`)}><ArchiveRestore/>Restore</Button>
+            </div>
+          </div> : <RoleNotice>{role} access cannot run bulk actions.</RoleNotice>}
         </div>}
       </div>
-      <div className="max-h-[calc(100vh-260px)] divide-y overflow-y-auto">{visible.map((review) => <button key={review.id} onClick={() => setSelectedId(review.id)} className={cn("w-full p-4 text-left transition-colors", selected.id === review.id ? "bg-brand-soft/60" : "hover:bg-surface")}>
-        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3"><span className="icon-3d size-9 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="min-w-0"><strong className="block truncate text-sm">{review.name}</strong><span className="mt-1 flex items-center gap-2"><Stars value={review.rating} small/><span className="text-[10px] text-muted-foreground">{review.source} · {review.location}</span></span></span><span className="text-[10px] text-muted-foreground">{formatDate(review.reviewDate)}</span></div>
-        <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{review.text}</p>
-        <div className="mt-3 flex flex-wrap gap-1.5"><StatusPill tone={statusTone(review.status)}>{review.status}</StatusPill><StatusPill tone={priorityTone(review.priority)}>{review.priority}</StatusPill><StatusPill>{review.assignee ?? "Unassigned"}</StatusPill></div>
-      </button>)}{!visible.length && <p className="p-6 text-center text-xs text-muted-foreground">No reviews match these filters.</p>}</div>
+
+      <div className="max-h-[calc(100vh-320px)] divide-y overflow-y-auto">{visible.map((review) => {
+        const rowSla = slaInfo(review);
+        return <div key={review.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-2 p-3 transition-colors", selected.id === review.id ? "bg-brand-soft/60" : "hover:bg-surface")}>
+          <input type="checkbox" aria-label={`Select review from ${review.name}`} checked={picked.includes(review.id)} onChange={() => togglePick(review.id)} className="mt-4"/>
+          <button onClick={() => openReview(review)} className="min-w-0 text-left">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3"><span className="icon-3d size-9 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">{review.initials}</span><span className="min-w-0"><strong className="block truncate text-sm">{review.name}</strong><span className="mt-1 flex items-center gap-2"><Stars value={review.rating} small/><span className="text-[10px] text-muted-foreground">{review.source} · {review.location}</span></span></span><span className="text-[10px] text-muted-foreground">{formatDate(review.reviewDate)}</span></div>
+            <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{review.text}</p>
+            <div className="mt-3 flex flex-wrap gap-1.5"><StatusPill tone={statusTone(review.status)}>{review.status}</StatusPill><StatusPill tone={priorityTone(review.priority)}>{review.priority}</StatusPill><StatusPill tone={rowSla.tone}>{rowSla.label}</StatusPill>{review.archivedAt && <StatusPill>Archived</StatusPill>}{review.mergedInto && <StatusPill>Duplicate</StatusPill>}</div>
+          </button>
+        </div>;
+      })}{!visible.length && <p className="p-6 text-center text-xs text-muted-foreground">No reviews match these filters.</p>}</div>
+
+      <div className="flex items-center justify-between gap-2 border-t p-3 text-[11px] text-muted-foreground">
+        <span>{matching.length ? `${currentPage * PAGE_SIZE + 1}–${Math.min(matching.length, (currentPage + 1) * PAGE_SIZE)} of ${matching.length}` : "0 reviews"}</span>
+        <span className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}><ChevronLeft/>Prev</Button>
+          <span>Page {currentPage + 1} / {pageCount}</span>
+          <Button variant="outline" size="sm" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>Next<ChevronRight/></Button>
+        </span>
+      </div>
     </section>
 
     <section className="card-3d min-w-0 rounded-lg bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"><div className="flex flex-wrap items-center gap-2"><StatusPill tone={selected.sentiment === "Positive" ? "good" : selected.sentiment === "Mixed" ? "warn" : "bad"}>{selected.sentiment}</StatusPill><StatusPill tone={statusTone(selected.status)}>{selected.status}</StatusPill><StatusPill tone={priorityTone(selected.priority)}>{selected.priority} priority</StatusPill></div><div className="flex"><IconButton label="Open Response Center workflow" onClick={() => setMessage("Use the workflow panel below to draft, submit, and track this response.")}><Users/></IconButton><IconButton label="More actions" onClick={() => setMessage(`${selected.name} · ${selected.source} · ${formatDate(selected.reviewDate)}`)}><MoreHorizontal/></IconButton></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"><div className="flex flex-wrap items-center gap-2"><StatusPill tone={selected.sentiment === "Positive" ? "good" : selected.sentiment === "Mixed" ? "warn" : "bad"}>{selected.sentiment}</StatusPill><StatusPill tone={statusTone(selected.status)}>{selected.status}</StatusPill><StatusPill tone={priorityTone(selected.priority)}>{selected.priority} priority</StatusPill><StatusPill tone={sla.tone}><Timer className="mr-1 size-3"/>{sla.label}</StatusPill></div><div className="flex">
+        {permalink && <IconButton label="Open the original review" onClick={() => window.open(permalink, "_blank", "noopener,noreferrer")}><ExternalLink/></IconButton>}
+        <IconButton label="Copy link to this review" onClick={() => { void navigator.clipboard?.writeText(`${window.location.origin}/reviews/${selected.id}`); setMessage("Link to this review copied."); }}><Link2/></IconButton>
+        <IconButton label="More actions" onClick={() => setMessage(`${selected.name} · ${selected.source} · ${formatDate(selected.reviewDate)}`)}><MoreHorizontal/></IconButton>
+      </div></div>
       <div className="p-5 lg:p-7">
+        {duplicateOf && <p className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-surface p-3 text-xs"><Copy className="size-3.5 text-brand"/>Marked as a duplicate of <button className="font-semibold underline" onClick={() => openReview(duplicateOf)}>{duplicateOf.name}</button>{can("manageReview") && <Button variant="ghost" size="sm" disabled={saving} onClick={() => void run(() => updateReview(selected.id, { merged_into: null }), "Duplicate link removed.")}>Undo merge</Button>}</p>}
+        {selected.archivedAt && <p className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-surface p-3 text-xs"><Archive className="size-3.5 text-brand"/>Archived {formatMoment(selected.archivedAt)}{can("manageReview") && <Button variant="ghost" size="sm" disabled={saving} onClick={() => void run(() => updateReview(selected.id, { archived_at: null }), "Review restored.")}><ArchiveRestore/>Restore</Button>}</p>}
+
         <div className="flex items-start gap-3"><span className="icon-3d size-11 shrink-0 rounded-full bg-avatar font-display text-sm font-bold text-avatar-foreground">{selected.initials}</span><div className="min-w-0"><h2 className="font-display text-lg font-bold">{selected.name}</h2><p className="mt-1 text-xs text-muted-foreground">{selected.location} · {selected.source} · {formatDate(selected.reviewDate)}</p><div className="mt-3"><Stars value={selected.rating}/></div></div></div>
 
         <dl className="inset-3d mt-5 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg bg-surface p-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -920,6 +1046,13 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
             <dd className="mt-1 truncate text-xs font-semibold" title={value}>{value}</dd>
           </div>)}
         </dl>
+
+        <div className="mt-3 grid gap-2 rounded-lg border border-dashed bg-surface p-4 text-[11px] sm:grid-cols-3">
+          <span><strong className="block text-[10px] uppercase tracking-wider text-muted-foreground">Came from</strong>{selected.source}{selected.externalId ? ` · ${selected.externalId}` : ""}</span>
+          <span><strong className="block text-[10px] uppercase tracking-wider text-muted-foreground">Captured</strong>{formatMoment(selected.createdAt)}</span>
+          <span><strong className="block text-[10px] uppercase tracking-wider text-muted-foreground">Reply target</strong>{SLA_HOURS[selected.priority] ?? 24}h · {sla.label}</span>
+          {permalink && <a href={permalink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-semibold text-brand underline sm:col-span-3"><ExternalLink className="size-3"/>Open the original review on {selected.source}</a>}
+        </div>
 
         <blockquote className="mt-6 border-l-2 border-brand pl-4 text-[15px] leading-7 text-foreground">“{selected.text}”</blockquote>
 
@@ -954,6 +1087,17 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
             <Field label="Assigned to"><Select value={selected.assignee ?? ""} onChange={(value) => void run(() => updateReview(selected.id, { assignee: value || null, status: value && selected.status === "Needs reply" ? "Assigned" : selected.status }), value ? `Assigned to ${value}.` : "Assignment cleared.")} options={["", ...TEAM_MEMBERS]} disabled={!can("manageReview") || saving}/></Field>
             {!can("manageReview") && <div className="sm:col-span-3"><RoleNotice>{role} access is read-only for assignment, priority and status changes.</RoleNotice></div>}
           </div>
+          {can("manageReview") && <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+            {selected.archivedAt
+              ? <Button variant="outline" size="sm" disabled={saving} onClick={() => void run(() => updateReview(selected.id, { archived_at: null }), "Review restored.")}><ArchiveRestore/>Restore review</Button>
+              : <Button variant="outline" size="sm" disabled={saving} onClick={() => void run(() => updateReview(selected.id, { archived_at: new Date().toISOString() }), "Review archived.")}><Archive/>Archive review</Button>}
+            <Button variant="outline" size="sm" disabled={saving} onClick={() => setMergeMode(!mergeMode)}><Copy/>{mergeMode ? "Cancel merge" : "Mark as duplicate"}</Button>
+            {duplicates.length > 0 && <span className="text-[11px] text-muted-foreground">{duplicates.length} duplicate{duplicates.length === 1 ? "" : "s"} point here.</span>}
+          </div>}
+          {mergeMode && can("manageReview") && <div className="mt-3">
+            <Field label="Duplicate of"><Select value={selected.mergedInto ?? ""} onChange={(value) => void run(async () => { await updateReview(selected.id, { merged_into: value || null, archived_at: value ? new Date().toISOString() : null }); setMergeMode(false); }, value ? "Marked as a duplicate and archived." : "Duplicate link removed.")} options={["", ...reviews.filter((review) => review.id !== selected.id && !review.mergedInto).slice(0, 40).map((review) => `${review.name} · ${formatDate(review.reviewDate)}`)]} disabled={saving}/></Field>
+            <p className="mt-2 text-[11px] text-muted-foreground">Pick the review this one repeats. Duplicates stay searchable but leave the active queue.</p>
+          </div>}
         </div>
 
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
