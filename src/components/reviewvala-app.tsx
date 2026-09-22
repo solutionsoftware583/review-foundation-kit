@@ -36,6 +36,7 @@ import {
   X,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import { Overlay } from "@/components/overlay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
