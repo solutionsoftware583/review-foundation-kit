@@ -14,6 +14,8 @@ import {
   History,
   Inbox,
   LayoutDashboard,
+  Lightbulb,
+  Loader2,
   Lock,
   MapPin,
   Menu,
@@ -39,7 +41,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
-type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
+type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Improve" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
 type PreviewState = "Live data" | "Loading" | "Empty" | "Error";
 type BadgeKey = "needsReply" | "pendingResponses" | "alerts";
 
@@ -92,7 +94,8 @@ const navGroups: { label: string; items: { name: PageKey; icon: typeof Gauge; ba
     { name: "Response Center", icon: MessageSquareReply, badge: "pendingResponses" }, { name: "Ratings", icon: Star },
   ]},
   { label: "Intelligence", items: [
-    { name: "Analytics", icon: ChartNoAxesCombined }, { name: "Alerts", icon: Bell, badge: "alerts" },
+    { name: "Analytics", icon: ChartNoAxesCombined }, { name: "Improve", icon: Lightbulb },
+    { name: "Alerts", icon: Bell, badge: "alerts" },
     { name: "Reports", icon: FileBarChart },
   ]},
   { label: "Manage", items: [
@@ -389,6 +392,7 @@ const pageDescriptions: Record<PageKey, string> = {
   "Response Center": "Draft, approve, and publish thoughtful responses faster.",
   Ratings: "Understand rating movement across channels and locations.",
   Analytics: "Turn customer feedback into clear, actionable intelligence.",
+  Improve: "Find the root causes behind feedback and act on service improvements.",
   Alerts: "Stay ahead of urgent reviews and reputation changes.",
   Locations: "Compare performance and ownership across every location.",
   Team: "Manage collaborators, roles, and response accountability.",
