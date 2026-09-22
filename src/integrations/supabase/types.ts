@@ -14,6 +14,56 @@ export type Database = {
   }
   public: {
     Tables: {
+      reviewvala_businesses: {
+        Row: {
+          category: string | null
+          city: string | null
+          country: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          location_label: string
+          name: string
+          updated_at: string
+          website: string | null
+          workspace_slug: string
+        }
+        Insert: {
+          category?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          location_label: string
+          name: string
+          updated_at?: string
+          website?: string | null
+          workspace_slug: string
+        }
+        Update: {
+          category?: string | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          location_label?: string
+          name?: string
+          updated_at?: string
+          website?: string | null
+          workspace_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_businesses_workspace_slug_fkey"
+            columns: ["workspace_slug"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_workspaces"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       reviewvala_insights: {
         Row: {
           created_at: string
@@ -304,6 +354,42 @@ export type Database = {
           time_label?: string
           updated_at?: string
           workspace_slug?: string
+        }
+        Relationships: []
+      }
+      reviewvala_workspaces: {
+        Row: {
+          created_at: string
+          id: string
+          industry: string | null
+          name: string
+          owner_user_id: string | null
+          plan: string
+          slug: string
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          industry?: string | null
+          name: string
+          owner_user_id?: string | null
+          plan?: string
+          slug: string
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          industry?: string | null
+          name?: string
+          owner_user_id?: string | null
+          plan?: string
+          slug?: string
+          updated_at?: string
+          website?: string | null
         }
         Relationships: []
       }

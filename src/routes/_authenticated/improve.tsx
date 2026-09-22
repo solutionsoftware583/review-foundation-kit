@@ -3,7 +3,7 @@ import { ReviewValaApp, pageMeta } from "@/components/reviewvala-app";
 
 const meta = pageMeta("Improve");
 
-export const Route = createFileRoute("/improve")({
+export const Route = createFileRoute("/_authenticated/improve")({
   head: () => ({
     meta: [
       { title: meta.title },
