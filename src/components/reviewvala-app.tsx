@@ -345,10 +345,14 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
 
   const channelNames: string[] = [];
   for (const snapshot of snapshots) if (!channelNames.includes(snapshot.channel)) channelNames.push(snapshot.channel);
-  const channels = channelNames.map((channel) => {
-    const series = snapshots.filter((snapshot) => snapshot.channel === channel).map((snapshot) => Number(snapshot.rating));
-    const latest = series[series.length - 1] ?? 0;
-    const first = series[0] ?? latest;
+  const channelSeries = channelNames.map((channel) => ({
+    channel,
+    series: periods.map((period) => average(snapshots.filter((snapshot) => snapshot.channel === channel && snapshot.period_label === period).map((snapshot) => Number(snapshot.rating)))),
+  }));
+  const channels = channelSeries.map(({ channel, series }) => {
+    const clean = series.filter((value) => value > 0);
+    const latest = clean[clean.length - 1] ?? 0;
+    const first = clean[0] ?? latest;
     return { channel, latest, change: latest - first };
   });
 
