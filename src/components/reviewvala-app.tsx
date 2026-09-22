@@ -24,8 +24,18 @@ import {
   NotebookPen,
   Plus,
   RotateCcw,
+  Archive,
+  ArchiveRestore,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  ExternalLink,
+  Link2,
+  Save,
   Search,
   Send,
+  Timer,
+  Trash2,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -38,6 +48,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { Overlay } from "@/components/overlay";
 import { formatDate, formatMoment } from "@/lib/format";
+import { externalPermalink, matchAssignee, slaInfo, SLA_HOURS, type AssignmentRule } from "@/lib/review-sla";
 import { AuditLogPanel, BusinessesPanel, InvitesPanel, ProfilePanel, WorkspaceSettingsPanel, logAudit } from "@/components/workspace-admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,6 +114,16 @@ type Review = {
   priority: string;
   assignee: string | null;
   createdAt: string;
+  archivedAt: string | null;
+  mergedInto: string | null;
+  sourceUrl: string | null;
+  externalId: string | null;
+  firstResponseAt: string | null;
+};
+
+type ReviewPatch = {
+  status?: string; priority?: string; assignee?: string | null;
+  archived_at?: string | null; merged_into?: string | null; source_url?: string | null; external_id?: string | null;
 };
 
 type ResponseRecord = {
@@ -131,13 +152,14 @@ type RatingSnapshot = { id: string; channel: string; rating: number; period_labe
 
 // All workspace data is loaded from the connected database; nothing is hardcoded in the UI.
 
-const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at";
+const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at, archived_at, merged_into, source_url, external_id, first_response_at";
 const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at";
 
 type ReviewRow = {
   id: string; reviewer_initials: string; reviewer_name: string; source: string; location: string; rating: number;
   time_label: string; status: string; sentiment: string; review_text: string; review_date: string; priority: string;
-  assignee: string | null; created_at: string;
+  assignee: string | null; created_at: string; archived_at: string | null; merged_into: string | null;
+  source_url: string | null; external_id: string | null; first_response_at: string | null;
 };
 
 function mapReview(row: ReviewRow): Review {
@@ -145,6 +167,8 @@ function mapReview(row: ReviewRow): Review {
     id: row.id, initials: row.reviewer_initials, name: row.reviewer_name, source: row.source, location: row.location,
     rating: row.rating, time: row.time_label, status: row.status, sentiment: row.sentiment, text: row.review_text,
     reviewDate: row.review_date, priority: row.priority ?? "Normal", assignee: row.assignee, createdAt: row.created_at,
+    archivedAt: row.archived_at, mergedInto: row.merged_into, sourceUrl: row.source_url,
+    externalId: row.external_id, firstResponseAt: row.first_response_at,
   };
 }
 
@@ -158,17 +182,19 @@ function useWorkspaceData(role: Role, actorName: string) {
   const [events, setEvents] = useState<ResponseEvent[]>([]);
   const [notes, setNotes] = useState<ReviewNote[]>([]);
   const [snapshots, setSnapshots] = useState<RatingSnapshot[]>([]);
+  const [rules, setRules] = useState<AssignmentRule[]>([]);
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const refresh = useCallback(async () => {
     setDataStatus("loading");
     try {
-      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult] = await Promise.all([
+      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult, ruleResult] = await Promise.all([
         supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
         supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
         supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
         supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
         supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_assignment_rules").select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
       ]);
 
       const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
@@ -183,6 +209,7 @@ function useWorkspaceData(role: Role, actorName: string) {
       setEvents(eventResult.data ?? []);
       setNotes(noteResult.data ?? []);
       setSnapshots(snapshotResult.data ?? []);
+      setRules((ruleResult.data ?? []) as AssignmentRule[]);
       setDataStatus("ready");
     } catch (caught) {
       console.error(caught);
@@ -216,6 +243,9 @@ function useWorkspaceData(role: Role, actorName: string) {
     const result = await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft", author_name: actorName }).select(RESPONSE_COLUMNS).single();
     if (result.error) throw result.error;
     applyResponse(result.data);
+    // First draft stops the reply clock for SLA reporting.
+    const stamped = await supabase.from("reviewvala_reviews").update({ first_response_at: new Date().toISOString() }).eq("id", reviewId).is("first_response_at", null).select(REVIEW_COLUMNS).maybeSingle();
+    if (stamped.data) { const mapped = mapReview(stamped.data); setWorkspaceReviews((current) => current.map((review) => review.id === reviewId ? mapped : review)); }
     await logEvent(result.data.id, "Response created", null, "Draft");
     return result.data;
   }, [applyResponse, logEvent, responses]);
@@ -245,11 +275,21 @@ function useWorkspaceData(role: Role, actorName: string) {
     setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapReview(reviewResult.data) : review));
   }, [moveResponse, responses]);
 
-  const updateReview = useCallback(async (reviewId: string, patch: { status?: string; priority?: string; assignee?: string | null }) => {
+  const updateReview = useCallback(async (reviewId: string, patch: ReviewPatch) => {
     const result = await supabase.from("reviewvala_reviews").update(patch).eq("id", reviewId).select(REVIEW_COLUMNS).single();
     if (result.error) throw result.error;
     const mapped = mapReview(result.data);
     setWorkspaceReviews((current) => current.map((review) => review.id === reviewId ? mapped : review));
+    return mapped;
+  }, []);
+
+  const updateReviews = useCallback(async (reviewIds: string[], patch: ReviewPatch) => {
+    if (!reviewIds.length) return [] as Review[];
+    const result = await supabase.from("reviewvala_reviews").update(patch).in("id", reviewIds).select(REVIEW_COLUMNS);
+    if (result.error) throw result.error;
+    const mapped = (result.data ?? []).map(mapReview);
+    const byId = new Map(mapped.map((review) => [review.id, review]));
+    setWorkspaceReviews((current) => current.map((review) => byId.get(review.id) ?? review));
     return mapped;
   }, []);
 
@@ -261,6 +301,8 @@ function useWorkspaceData(role: Role, actorName: string) {
   }, []);
 
   const createReview = useCallback(async (input: CreateReviewInput) => {
+    // Assignment rules decide the owner when the form leaves it blank.
+    const ruleAssignee = input.assignee || matchAssignee(rules, { source: input.source, location: input.location.trim(), rating: input.rating });
     const result = await supabase.from("reviewvala_reviews").insert({
       workspace_slug: WORKSPACE,
       reviewer_initials: initialsOf(input.name),
@@ -269,20 +311,22 @@ function useWorkspaceData(role: Role, actorName: string) {
       location: input.location.trim(),
       rating: input.rating,
       time_label: formatDate(input.reviewDate),
-      status: input.assignee ? "Assigned" : "Needs reply",
       sentiment: input.sentiment,
       review_text: input.text.trim(),
       review_date: input.reviewDate,
       priority: input.priority,
-      assignee: input.assignee || null,
+      assignee: ruleAssignee || null,
+      status: ruleAssignee ? "Assigned" : "Needs reply",
+      source_url: input.sourceUrl?.trim() || null,
+      external_id: input.externalId?.trim() || null,
     }).select(REVIEW_COLUMNS).single();
     if (result.error) throw result.error;
     const review = mapReview(result.data);
     setWorkspaceReviews((current) => [review, ...current]);
     return review;
-  }, []);
+  }, [rules]);
 
-  return { reviews: workspaceReviews, responses, events, notes, snapshots, dataStatus, refresh, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
+  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
 }
 
 /* -------------------------------------------------------------- derived --- */
