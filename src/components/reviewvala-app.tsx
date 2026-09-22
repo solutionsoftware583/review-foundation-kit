@@ -1606,7 +1606,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openReview = (review: Review) => { void navigate({ to: "/reviews", search: { review: review.id } }); };
+  const openReview = (review: Review) => { void navigate({ to: "/reviews/$reviewId", params: { reviewId: review.id } }); };
 
   const handleSignOut = async () => {
     await session.signOut();
@@ -1616,7 +1616,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   const content = page === "Overview"
     ? <Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>
     : page === "Reviews"
-      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} addNote={data.addNote} createReview={data.createReview}/>
+      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
         ? <ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
         : page === "Improve"
