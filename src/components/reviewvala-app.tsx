@@ -511,17 +511,39 @@ function MetricCard({ icon: Icon, label, value, note, tone = "brand" }: { icon: 
   return <div className="card-3d outline-glass rounded-lg bg-card p-4"><div className="flex items-start justify-between"><div><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 font-display text-2xl font-bold text-card-foreground">{value}</p></div><span className={cn("icon-3d size-9", tone === "brand" ? "bg-brand-soft text-brand" : tone === "warning" ? "bg-warning-soft text-warning-strong" : "bg-success-soft text-success")}><Icon className="size-4"/></span></div><p className="mt-3 flex items-center gap-1 text-[11px] text-muted-foreground"><TrendingUp className="size-3 text-success"/>{note}</p></div>;
 }
 
-function TrendChart({ points, labels }: { points: number[]; labels: string[] }) {
-  if (points.length < 2) return <div className="mt-5 grid h-44 place-items-center rounded-md border border-dashed text-xs text-muted-foreground">Not enough rating history yet to draw a trend.</div>;
-  const width = 700, height = 180, min = 0, max = 5;
-  const coords = points.map((value, index) => {
-    const x = (index / (points.length - 1)) * width;
-    const y = height - ((value - min) / (max - min)) * height;
-    return { x, y };
-  });
-  const line = coords.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
-  const last = coords[coords.length - 1]!;
-  return <div className="mt-5"><div className="h-44 w-full"><svg viewBox="0 0 700 180" className="h-full w-full" preserveAspectRatio="none" aria-label="Average rating trend"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".28"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>{[30,75,120,165].map(y => <line key={y} x1="0" y1={y} x2="700" y2={y} stroke="var(--border)" strokeDasharray="4 6"/>)}<path d={`${line} L${width} ${height} L0 ${height}Z`} fill="url(#area)"/><path d={line} fill="none" stroke="var(--brand)" strokeWidth="3" strokeLinecap="round"/><circle cx={last.x} cy={last.y} r="5" fill="var(--brand)" stroke="var(--background)" strokeWidth="3"/></svg></div><div className="mt-2 grid text-center text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>{labels.map((label) => <span key={label}>{label}</span>)}</div></div>;
+const CHANNEL_COLORS = ["var(--brand-bright)", "var(--warning)", "var(--success)", "var(--destructive)"];
+
+function TrendChart({ points, labels, volume, series }: { points: number[]; labels: string[]; volume: number[]; series: { channel: string; series: number[] }[] }) {
+  if (points.length < 2) return <div className="mt-5 grid h-56 place-items-center rounded-md border border-dashed text-xs text-muted-foreground">Not enough rating history yet to draw a trend.</div>;
+  const width = 720, height = 210, padL = 34, padR = 12, padT = 12, padB = 26;
+  const min = 3, max = 5;
+  const innerW = width - padL - padR, innerH = height - padT - padB;
+  const xOf = (index: number) => padL + (index / (points.length - 1)) * innerW;
+  const yOf = (value: number) => padT + innerH - ((Math.min(Math.max(value, min), max) - min) / (max - min)) * innerH;
+  const pathOf = (values: number[]) => values.map((value, index) => `${index ? "L" : "M"}${xOf(index).toFixed(1)} ${yOf(value).toFixed(1)}`).join(" ");
+  const line = pathOf(points);
+  const maxVolume = Math.max(1, ...volume);
+  const barW = Math.max(6, (innerW / points.length) * 0.42);
+  const ticks = [5, 4.5, 4, 3.5, 3];
+  const lastValue = points[points.length - 1]!;
+  return <div className="mt-5">
+    <div className="h-56 w-full"><svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" aria-label="Average rating trend by month">
+      <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".3"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>
+      {ticks.map((tick) => <g key={tick}><line x1={padL} y1={yOf(tick)} x2={width - padR} y2={yOf(tick)} stroke="var(--border)" strokeDasharray="4 6"/><text x={padL - 8} y={yOf(tick) + 3.5} textAnchor="end" fontSize="9" fill="var(--muted-foreground)">{tick.toFixed(1)}</text></g>)}
+      {volume.map((count, index) => { const h = (count / maxVolume) * innerH * 0.4; return <rect key={index} x={xOf(index) - barW / 2} y={padT + innerH - h} width={barW} height={h} rx="2" fill="var(--brand)" opacity="0.1"/>; })}
+      <path d={`${line} L${xOf(points.length - 1)} ${padT + innerH} L${padL} ${padT + innerH}Z`} fill="url(#area)"/>
+      {series.map((entry, index) => <path key={entry.channel} d={pathOf(entry.series)} fill="none" stroke={CHANNEL_COLORS[index % CHANNEL_COLORS.length]} strokeWidth="1.5" strokeOpacity=".55" strokeLinecap="round"/>)}
+      <path d={line} fill="none" stroke="var(--brand)" strokeWidth="3" strokeLinecap="round"/>
+      {points.map((value, index) => <circle key={index} cx={xOf(index)} cy={yOf(value)} r="3" fill="var(--card)" stroke="var(--brand)" strokeWidth="2"><title>{`${labels[index]} · ${value.toFixed(2)}★ · ${volume[index] ?? 0} reviews`}</title></circle>)}
+      <circle cx={xOf(points.length - 1)} cy={yOf(lastValue)} r="5.5" fill="var(--brand)" stroke="var(--card)" strokeWidth="3"/>
+      {labels.map((label, index) => <text key={label} x={xOf(index)} y={height - 8} textAnchor="middle" fontSize="9" fill="var(--muted-foreground)">{label}</text>)}
+    </svg></div>
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+      <span className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-brand"/>Blended rating</span>
+      {series.map((entry, index) => <span key={entry.channel} className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: CHANNEL_COLORS[index % CHANNEL_COLORS.length], opacity: 0.6 }}/>{entry.channel}</span>)}
+      <span className="flex items-center gap-1.5"><span className="size-2 rounded-sm bg-brand/15"/>Review volume</span>
+    </div>
+  </div>;
 }
 
 /* ------------------------------------------------------------------ pages --- */
