@@ -523,11 +523,15 @@ function IconButton({ label, children, onClick, className, type = "button", disa
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="grid gap-1.5 text-xs font-semibold">{label}{children}</label>;
+  const generatedId = useId();
+  const control = isValidElement<{ id?: string }>(children)
+    ? cloneElement(children, { id: children.props.id ?? generatedId })
+    : children;
+  return <label htmlFor={generatedId} className="grid gap-1.5 text-xs font-semibold">{label}{control}</label>;
 }
 
-function Select({ value, onChange, options, disabled }: { value: string; onChange: (value: string) => void; options: string[]; disabled?: boolean }) {
-  return <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
+function Select({ value, onChange, options, disabled, id }: { value: string; onChange: (value: string) => void; options: string[]; disabled?: boolean; id?: string }) {
+  return <select id={id} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="inset-3d h-10 rounded-md border bg-background px-3 text-sm font-normal disabled:opacity-60">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
 }
 
 function RoleNotice({ children }: { children: React.ReactNode }) {
