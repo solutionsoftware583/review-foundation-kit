@@ -383,8 +383,8 @@ export function AssignmentRulesPanel({ role }: { role: Role }) {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_assignment_rules").insert({
       workspace_slug: WORKSPACE_SLUG, name: name.trim() || `${assignee} rule`,
-      position: rules.length, match_source: source === "Any" ? null : source,
-      match_location: location === "Any" ? null : location,
+      position: rules.length, match_source: source === "Any" ? undefined : source,
+      match_location: location === "Any" ? undefined : location,
       min_rating: Number(minRating), max_rating: Number(maxRating), assignee, is_active: true,
     });
     setBusy(false);
