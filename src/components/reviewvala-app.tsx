@@ -814,32 +814,52 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
       </button>)}{!visible.length && <p className="p-6 text-center text-xs text-muted-foreground">No reviews match these filters.</p>}</div>
     </section>
 
-    <section className="min-w-0">
+    <section className="card-3d min-w-0 rounded-lg bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3"><div className="flex flex-wrap items-center gap-2"><StatusPill tone={selected.sentiment === "Positive" ? "good" : selected.sentiment === "Mixed" ? "warn" : "bad"}>{selected.sentiment}</StatusPill><StatusPill tone={statusTone(selected.status)}>{selected.status}</StatusPill><StatusPill tone={priorityTone(selected.priority)}>{selected.priority} priority</StatusPill></div><div className="flex"><IconButton label="Open Response Center workflow" onClick={() => setMessage("Use the workflow panel below to draft, submit, and track this response.")}><Users/></IconButton><IconButton label="More actions" onClick={() => setMessage(`${selected.name} · ${selected.source} · ${formatDate(selected.reviewDate)}`)}><MoreHorizontal/></IconButton></div></div>
       <div className="p-5 lg:p-7">
         <div className="flex items-start gap-3"><span className="icon-3d size-11 shrink-0 rounded-full bg-avatar font-display text-sm font-bold text-avatar-foreground">{selected.initials}</span><div className="min-w-0"><h2 className="font-display text-lg font-bold">{selected.name}</h2><p className="mt-1 text-xs text-muted-foreground">{selected.location} · {selected.source} · {formatDate(selected.reviewDate)}</p><div className="mt-3"><Stars value={selected.rating}/></div></div></div>
+
+        <dl className="inset-3d mt-5 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg bg-surface p-4 sm:grid-cols-3 lg:grid-cols-6">
+          {([["Rating", `${selected.rating.toFixed(1)} / 5`], ["Platform", selected.source], ["Location", selected.location], ["Sentiment", selected.sentiment], ["Priority", selected.priority], ["Response", currentResponse?.response_status ?? "Not started"]] as const).map(([label, value]) => <div key={label} className="min-w-0">
+            <dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt>
+            <dd className="mt-1 truncate text-xs font-semibold" title={value}>{value}</dd>
+          </div>)}
+        </dl>
+
         <blockquote className="mt-6 border-l-2 border-brand pl-4 text-[15px] leading-7 text-foreground">“{selected.text}”</blockquote>
 
-        <div className="card-3d mt-6 grid gap-3 rounded-lg bg-surface p-4 sm:grid-cols-3">
-          <Field label="Status"><Select value={selected.status} onChange={(value) => void run(() => updateReview(selected.id, { status: value }), `Status set to ${value}.`)} options={REVIEW_STATUSES} disabled={!can("manageReview") || saving}/></Field>
-          <Field label="Priority"><Select value={selected.priority} onChange={(value) => void run(() => updateReview(selected.id, { priority: value }), `Priority set to ${value}.`)} options={PRIORITIES} disabled={!can("manageReview") || saving}/></Field>
-          <Field label="Assigned to"><Select value={selected.assignee ?? ""} onChange={(value) => void run(() => updateReview(selected.id, { assignee: value || null, status: value && selected.status === "Needs reply" ? "Assigned" : selected.status }), value ? `Assigned to ${value}.` : "Assignment cleared.")} options={["", ...TEAM_MEMBERS]} disabled={!can("manageReview") || saving}/></Field>
-          {!can("manageReview") && <div className="sm:col-span-3"><RoleNotice>{role} access is read-only for assignment, priority and status changes.</RoleNotice></div>}
+        <div className="card-3d outline-glass mt-6 rounded-lg bg-card p-5">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+            <div className="min-w-0">
+              <h3 className="font-display text-base font-bold">Write the response</h3>
+              <p className="mt-1 text-[11px] text-muted-foreground">Step 1 Write · Step 2 Save draft · Step 3 Submit for approval — internal workflow only.</p>
+            </div>
+            {currentResponse && <StatusPill tone={statusTone(currentResponse.response_status)}>{currentResponse.response_status}</StatusPill>}
+          </div>
+          {can("draftResponse") ? <>
+            <textarea value={reply} onChange={(event) => { setReply(event.target.value); setMessage(""); }} placeholder={`Hi ${selected.name.split(" ")[0]}, thank you for taking the time to share this with us…`} className="inset-3d mt-4 min-h-40 w-full resize-none rounded-md border bg-background p-4 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"/>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <span className="min-w-0 text-[11px] text-muted-foreground">{message || `${reply.trim().length} characters · warm, concise and brand-safe`}</span>
+              <span className="flex flex-wrap gap-2">
+                <Button variant="ghost" size="sm" type="button" onClick={() => { setReply(suggestResponse(selected)); setMessage("Starter wording inserted. Edit before saving."); }}><WandSparkles/>Starter wording</Button>
+                <Button variant="outline" size="sm" onClick={() => void run(() => saveDraft(selected.id, reply.trim()), "Draft saved to Response Center.")} disabled={saving || !reply.trim()}><Send/>{saving ? "Saving…" : "Save draft"}</Button>
+                <Button size="sm" disabled={saving || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
+              </span>
+            </div>
+          </> : <div className="mt-4"><RoleNotice>{role} access can read responses but cannot draft or submit them.</RoleNotice></div>}
         </div>
 
         <div className="card-3d mt-5 rounded-lg bg-surface p-4">
-          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-xs font-bold"><WandSparkles className="size-4 text-brand"/>Response workflow</span>{currentResponse && <StatusPill tone={statusTone(currentResponse.response_status)}>{currentResponse.response_status}</StatusPill>}</div>
-          {can("draftResponse") ? <>
-            <button type="button" onClick={() => { setReply(suggestResponse(selected)); setMessage("Suggested wording inserted. Edit before saving."); }} className="mt-3 text-xs font-semibold text-brand">Suggest wording</button>
-            <textarea value={reply} onChange={(event) => { setReply(event.target.value); setMessage(""); }} placeholder={`Hi ${selected.name.split(" ")[0]}, thank you for taking the time to share this with us…`} className="inset-3d mt-2 min-h-32 w-full resize-none rounded-md border bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"/>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><span className="min-w-0 text-[11px] text-muted-foreground">{message || "Warm · Concise · Brand-safe · Internal workflow only"}</span><span className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => void run(() => saveDraft(selected.id, reply.trim()), "Draft saved to Response Center.")} disabled={saving || !reply.trim()}><Send/>{saving ? "Saving…" : "Save draft"}</Button>
-              <Button size="sm" disabled={saving || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
-            </span></div>
-          </> : <RoleNotice>{role} access can read responses but cannot draft or submit them.</RoleNotice>}
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Workflow</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <Field label="Status"><Select value={selected.status} onChange={(value) => void run(() => updateReview(selected.id, { status: value }), `Status set to ${value}.`)} options={REVIEW_STATUSES} disabled={!can("manageReview") || saving}/></Field>
+            <Field label="Priority"><Select value={selected.priority} onChange={(value) => void run(() => updateReview(selected.id, { priority: value }), `Priority set to ${value}.`)} options={PRIORITIES} disabled={!can("manageReview") || saving}/></Field>
+            <Field label="Assigned to"><Select value={selected.assignee ?? ""} onChange={(value) => void run(() => updateReview(selected.id, { assignee: value || null, status: value && selected.status === "Needs reply" ? "Assigned" : selected.status }), value ? `Assigned to ${value}.` : "Assignment cleared.")} options={["", ...TEAM_MEMBERS]} disabled={!can("manageReview") || saving}/></Field>
+            {!can("manageReview") && <div className="sm:col-span-3"><RoleNotice>{role} access is read-only for assignment, priority and status changes.</RoleNotice></div>}
+          </div>
         </div>
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="mt-5 grid gap-5 lg:grid-cols-2">
           <section className="card-3d rounded-lg bg-card p-4"><h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground"><NotebookPen className="size-3.5 text-brand"/>Internal notes</h3><p className="mt-1 text-[11px] text-muted-foreground">Private to your team — never sent as a response.</p>
             {can("addNote") ? <div className="mt-3 flex gap-2"><Input value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Add an internal note" className="font-normal"/><Button size="sm" disabled={saving || !noteDraft.trim()} onClick={() => void run(async () => { await addNote(selected.id, noteDraft.trim()); setNoteDraft(""); }, "Internal note added.")}>Add</Button></div> : <RoleNotice>{role} access cannot add internal notes.</RoleNotice>}
             <ul className="mt-4 space-y-3">{selectedNotes.map((note) => <li key={note.id} className="rounded-md border bg-surface p-3 text-xs leading-5"><div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><strong className="text-foreground">{note.author_name}</strong>{formatMoment(note.created_at)}</div><p className="mt-1">{note.note_text}</p></li>)}{!selectedNotes.length && <li className="text-xs text-muted-foreground">No internal notes on this review yet.</li>}</ul>
