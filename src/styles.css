@@ -290,3 +290,16 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Slim, low-contrast scrollbar for the sidebar navigation. */
+@utility sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-sidebar-muted) 45%, transparent) transparent;
+
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-sidebar-muted) 40%, transparent);
+  }
+  &::-webkit-scrollbar-track { background: transparent; }
+}

@@ -345,10 +345,14 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
 
   const channelNames: string[] = [];
   for (const snapshot of snapshots) if (!channelNames.includes(snapshot.channel)) channelNames.push(snapshot.channel);
-  const channels = channelNames.map((channel) => {
-    const series = snapshots.filter((snapshot) => snapshot.channel === channel).map((snapshot) => Number(snapshot.rating));
-    const latest = series[series.length - 1] ?? 0;
-    const first = series[0] ?? latest;
+  const channelSeries = channelNames.map((channel) => ({
+    channel,
+    series: periods.map((period) => average(snapshots.filter((snapshot) => snapshot.channel === channel && snapshot.period_label === period).map((snapshot) => Number(snapshot.rating)))),
+  }));
+  const channels = channelSeries.map(({ channel, series }) => {
+    const clean = series.filter((value) => value > 0);
+    const latest = clean[clean.length - 1] ?? 0;
+    const first = clean[0] ?? latest;
     return { channel, latest, change: latest - first };
   });
 
@@ -375,7 +379,31 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     drafted: responses.filter((response) => response.author_name === name).length,
     published: responses.filter((response) => response.author_name === name && response.response_status === "Published").length,
     assigned: reviews.filter((review) => review.assignee === name).length,
+  })).sort((a, b) => (b.assigned + b.drafted) - (a.assigned + a.drafted));
+
+  const sentimentMix = (["Positive", "Mixed", "Negative"] as const).map((sentiment) => {
+    const count = reviews.filter((review) => review.sentiment === sentiment).length;
+    return { sentiment, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
+  });
+
+  const priorityMix = (["Urgent", "High", "Normal", "Low"] as const).map((priority) => ({
+    priority,
+    count: reviews.filter((review) => review.priority === priority).length,
+    open: reviews.filter((review) => review.priority === priority && review.status !== "Replied").length,
   }));
+
+  const pipeline = (["Draft", "Pending approval", "Changes requested", "Approved", "Published"] as const).map((stage) => ({
+    stage,
+    count: responses.filter((response) => response.response_status === stage).length,
+  }));
+
+  const monthOf = (value: string) => new Date(value).toLocaleString("en-US", { month: "short" });
+  const volume = periods.map((period) => reviews.filter((review) => monthOf(review.reviewDate) === period).length);
+
+  const ratingBreakdown = [5, 4, 3, 2, 1].map((stars) => {
+    const count = reviews.filter((review) => Math.round(review.rating) === stars).length;
+    return { stars, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
+  });
 
   const alerts = [
     ...reviews.filter((review) => review.status === "Escalated").map((review) => ({ tone: "bad" as const, title: `Escalated ${review.rating}-star review from ${review.name}`, meta: `${review.location} · ${review.source} · ${review.time}` })),
@@ -385,7 +413,7 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     ...responses.filter((response) => response.response_status === "Changes requested").map((response) => ({ tone: "warn" as const, title: `Changes requested on a response by ${response.author_name}`, meta: "Response Center" })),
   ];
 
-  return { totalReviews, needsReply, escalated, replied, unassigned, urgent, pendingResponses, awaitingApproval, overallRating, responseRate, positiveShare, periods, trend, channels, locations, sources, teammates, alerts };
+  return { totalReviews, needsReply, escalated, replied, unassigned, urgent, pendingResponses, awaitingApproval, overallRating, responseRate, positiveShare, periods, trend, channels, channelSeries, locations, sources, teammates, alerts, sentimentMix, priorityMix, pipeline, volume, ratingBreakdown };
 }
 
 const pageDescriptions: Record<PageKey, string> = {
@@ -464,7 +492,10 @@ function Sidebar({ page, setPage, open, close, derived, role, setRole }: { page:
     <button onClick={() => { setPage("Locations"); close(); }} className="mx-1 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-elevated p-2.5 text-left shadow-xs transition-colors hover:bg-sidebar-hover">
       <span className="flex min-w-0 items-center gap-2.5"><span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">Northstar Group</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
     </button>
-    <nav className="flex-1 space-y-5 overflow-y-auto" aria-label="Primary navigation">{navGroups.map((group) => <div key={group.label}><p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-muted">{group.label}</p><div className="space-y-0.5">{group.items.map((item) => { const Icon = item.icon; const active = page === item.name; const count = item.badge ? badges[item.badge] : 0; return <button key={item.name} onClick={() => { setPage(item.name); close(); }} className={cn("grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors", active ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs" : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground")}><Icon className={cn("size-4", active && "text-brand-bright")}/><span className="truncate">{item.name}</span>{count > 0 && <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-brand text-brand-foreground" : "bg-sidebar-hover text-sidebar-muted")}>{count}</span>}</button>})}</div></div>)}</nav>
+    <div className="relative min-h-0 flex-1">
+      <nav className="sidebar-scroll h-full space-y-3 overflow-y-auto pb-6 pr-1" aria-label="Primary navigation">{navGroups.map((group) => <div key={group.label}><p className="sticky top-0 z-10 mb-1 bg-sidebar/95 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-muted backdrop-blur">{group.label}</p><div className="space-y-0.5">{group.items.map((item) => { const Icon = item.icon; const active = page === item.name; const count = item.badge ? badges[item.badge] : 0; return <button key={item.name} onClick={() => { setPage(item.name); close(); }} className={cn("grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] font-medium transition-colors", active ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs" : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground")}><Icon className={cn("size-4", active && "text-brand-bright")}/><span className="truncate">{item.name}</span>{count > 0 && <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-brand text-brand-foreground" : "bg-sidebar-hover text-sidebar-muted")}>{count}</span>}</button>})}</div></div>)}</nav>
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-sidebar to-transparent"/>
+    </div>
     <div className="border-t border-sidebar-border pt-3">
       <button onClick={() => { setPage("Team"); close(); }} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-sidebar-hover"><span className="icon-3d size-8 shrink-0 rounded-full bg-avatar text-xs font-bold text-avatar-foreground">RS</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{ACTOR_NAME}</span><span className="block truncate text-[10px] text-sidebar-muted">{role === "Admin" ? "Workspace owner" : `${role} access`}</span></span><MoreHorizontal className="size-4 text-sidebar-muted"/></button>
       <label className="mt-2 grid gap-1 px-2 text-[9px] font-bold uppercase tracking-wider text-sidebar-muted">Active role
@@ -483,17 +514,39 @@ function MetricCard({ icon: Icon, label, value, note, tone = "brand" }: { icon: 
   return <div className="card-3d outline-glass rounded-lg bg-card p-4"><div className="flex items-start justify-between"><div><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 font-display text-2xl font-bold text-card-foreground">{value}</p></div><span className={cn("icon-3d size-9", tone === "brand" ? "bg-brand-soft text-brand" : tone === "warning" ? "bg-warning-soft text-warning-strong" : "bg-success-soft text-success")}><Icon className="size-4"/></span></div><p className="mt-3 flex items-center gap-1 text-[11px] text-muted-foreground"><TrendingUp className="size-3 text-success"/>{note}</p></div>;
 }
 
-function TrendChart({ points, labels }: { points: number[]; labels: string[] }) {
-  if (points.length < 2) return <div className="mt-5 grid h-44 place-items-center rounded-md border border-dashed text-xs text-muted-foreground">Not enough rating history yet to draw a trend.</div>;
-  const width = 700, height = 180, min = 0, max = 5;
-  const coords = points.map((value, index) => {
-    const x = (index / (points.length - 1)) * width;
-    const y = height - ((value - min) / (max - min)) * height;
-    return { x, y };
-  });
-  const line = coords.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
-  const last = coords[coords.length - 1]!;
-  return <div className="mt-5"><div className="h-44 w-full"><svg viewBox="0 0 700 180" className="h-full w-full" preserveAspectRatio="none" aria-label="Average rating trend"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".28"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>{[30,75,120,165].map(y => <line key={y} x1="0" y1={y} x2="700" y2={y} stroke="var(--border)" strokeDasharray="4 6"/>)}<path d={`${line} L${width} ${height} L0 ${height}Z`} fill="url(#area)"/><path d={line} fill="none" stroke="var(--brand)" strokeWidth="3" strokeLinecap="round"/><circle cx={last.x} cy={last.y} r="5" fill="var(--brand)" stroke="var(--background)" strokeWidth="3"/></svg></div><div className="mt-2 grid text-center text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>{labels.map((label) => <span key={label}>{label}</span>)}</div></div>;
+const CHANNEL_COLORS = ["var(--brand-bright)", "var(--warning)", "var(--success)", "var(--destructive)"];
+
+function TrendChart({ points, labels, volume, series }: { points: number[]; labels: string[]; volume: number[]; series: { channel: string; series: number[] }[] }) {
+  if (points.length < 2) return <div className="mt-5 grid h-56 place-items-center rounded-md border border-dashed text-xs text-muted-foreground">Not enough rating history yet to draw a trend.</div>;
+  const width = 720, height = 210, padL = 34, padR = 12, padT = 12, padB = 26;
+  const min = 3, max = 5;
+  const innerW = width - padL - padR, innerH = height - padT - padB;
+  const xOf = (index: number) => padL + (index / (points.length - 1)) * innerW;
+  const yOf = (value: number) => padT + innerH - ((Math.min(Math.max(value, min), max) - min) / (max - min)) * innerH;
+  const pathOf = (values: number[]) => values.map((value, index) => `${index ? "L" : "M"}${xOf(index).toFixed(1)} ${yOf(value).toFixed(1)}`).join(" ");
+  const line = pathOf(points);
+  const maxVolume = Math.max(1, ...volume);
+  const barW = Math.max(6, (innerW / points.length) * 0.42);
+  const ticks = [5, 4.5, 4, 3.5, 3];
+  const lastValue = points[points.length - 1]!;
+  return <div className="mt-5">
+    <div className="h-56 w-full"><svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" aria-label="Average rating trend by month">
+      <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--brand)" stopOpacity=".3"/><stop offset="100%" stopColor="var(--brand)" stopOpacity="0"/></linearGradient></defs>
+      {ticks.map((tick) => <g key={tick}><line x1={padL} y1={yOf(tick)} x2={width - padR} y2={yOf(tick)} stroke="var(--border)" strokeDasharray="4 6"/><text x={padL - 8} y={yOf(tick) + 3.5} textAnchor="end" fontSize="9" fill="var(--muted-foreground)">{tick.toFixed(1)}</text></g>)}
+      {volume.map((count, index) => { const h = (count / maxVolume) * innerH * 0.4; return <rect key={index} x={xOf(index) - barW / 2} y={padT + innerH - h} width={barW} height={h} rx="2" fill="var(--brand)" opacity="0.1"/>; })}
+      <path d={`${line} L${xOf(points.length - 1)} ${padT + innerH} L${padL} ${padT + innerH}Z`} fill="url(#area)"/>
+      {series.map((entry, index) => <path key={entry.channel} d={pathOf(entry.series)} fill="none" stroke={CHANNEL_COLORS[index % CHANNEL_COLORS.length]} strokeWidth="1.5" strokeOpacity=".55" strokeLinecap="round"/>)}
+      <path d={line} fill="none" stroke="var(--brand)" strokeWidth="3" strokeLinecap="round"/>
+      {points.map((value, index) => <circle key={index} cx={xOf(index)} cy={yOf(value)} r="3" fill="var(--card)" stroke="var(--brand)" strokeWidth="2"><title>{`${labels[index]} · ${value.toFixed(2)}★ · ${volume[index] ?? 0} reviews`}</title></circle>)}
+      <circle cx={xOf(points.length - 1)} cy={yOf(lastValue)} r="5.5" fill="var(--brand)" stroke="var(--card)" strokeWidth="3"/>
+      {labels.map((label, index) => <text key={label} x={xOf(index)} y={height - 8} textAnchor="middle" fontSize="9" fill="var(--muted-foreground)">{label}</text>)}
+    </svg></div>
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+      <span className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-brand"/>Blended rating</span>
+      {series.map((entry, index) => <span key={entry.channel} className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: CHANNEL_COLORS[index % CHANNEL_COLORS.length], opacity: 0.6 }}/>{entry.channel}</span>)}
+      <span className="flex items-center gap-1.5"><span className="size-2 rounded-sm bg-brand/15"/>Review volume</span>
+    </div>
+  </div>;
 }
 
 /* ------------------------------------------------------------------ pages --- */
@@ -520,18 +573,76 @@ function JourneyStrip({ derived, responses }: { derived: Derived; responses: Res
   return <section className="card-3d mb-4 rounded-lg bg-card p-4"><div className="flex items-center justify-between"><h2 className="font-display text-sm font-bold">Your reputation journey</h2><span className="text-[11px] text-muted-foreground">{active} of {journey.length} stages active</span></div><ol className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">{journey.map((item, index) => <li key={item.step} className="card-3d rounded-md bg-surface p-3"><div className="flex items-center gap-2"><span className={cn("icon-3d size-5 rounded-full text-[10px] font-bold", done[index] ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground")}>{done[index] ? <Check className="size-3"/> : index + 1}</span><span className="text-xs font-semibold">{item.step}</span></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">{item.copy}</p></li>)}</ol></section>;
 }
 
+function nextBestAction(derived: Derived): { title: string; detail: string; cta: string; page: PageKey } {
+  if (derived.escalated > 0) return { title: `${derived.escalated} escalated review${derived.escalated === 1 ? "" : "s"} need an owner today`, detail: "Escalations age fastest and drive the most visible damage. Clear these before anything else.", cta: "Open escalations", page: "Reviews" };
+  if (derived.awaitingApproval > 0) return { title: `${derived.awaitingApproval} response${derived.awaitingApproval === 1 ? "" : "s"} waiting on approval`, detail: "Drafts are written and blocked on a reviewer. Approving them lifts response rate immediately.", cta: "Approve responses", page: "Response Center" };
+  if (derived.unassigned > 0) return { title: `${derived.unassigned} review${derived.unassigned === 1 ? "" : "s"} have no owner`, detail: "Unassigned reviews are the main cause of slow replies. Route them to a teammate now.", cta: "Assign owners", page: "Reviews" };
+  if (derived.needsReply > 0) return { title: `${derived.needsReply} review${derived.needsReply === 1 ? "" : "s"} still need a reply`, detail: "Replying within 48 hours is the strongest single lever on your public rating.", cta: "Start replying", page: "Reviews" };
+  const weakest = [...derived.locations].sort((a, b) => a.score - b.score)[0];
+  return { title: weakest ? `${weakest.name} is your lowest-rated location at ${weakest.score.toFixed(1)}★` : "Your queue is clear", detail: weakest ? "Every review is answered. Move to root causes and fix what keeps pulling this location down." : "Connect a channel to start collecting customer feedback.", cta: "Find root causes", page: "Improve" };
+}
+
 function Overview({ setPage, reviews, responses, derived }: { setPage: (p: PageKey) => void; reviews: Review[]; responses: ResponseRecord[]; derived: Derived }) {
   const topSource = derived.sources[0];
   const topLocation = derived.locations[0];
   const trendChange = derived.trend.length > 1 ? (derived.trend[derived.trend.length - 1]! - derived.trend[0]!) : 0;
+  const action = nextBestAction(derived);
+  const last30 = reviews.filter((review) => (Date.now() - new Date(review.reviewDate).getTime()) / 86400000 <= 30).length;
   return <><JourneyStrip derived={derived} responses={responses}/><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
     <MetricCard icon={Star} label="Overall rating" value={derived.overallRating.toFixed(2)} note={`${derived.totalReviews} review${derived.totalReviews === 1 ? "" : "s"} counted`} tone="warning"/>
-    <MetricCard icon={Inbox} label="Reviews collected" value={String(derived.totalReviews)} note={`${derived.needsReply} need attention · ${derived.unassigned} unassigned`}/>
+    <MetricCard icon={Inbox} label="Reviews collected" value={String(derived.totalReviews)} note={`${last30} in the last 30 days · ${derived.unassigned} unassigned`}/>
     <MetricCard icon={MessageSquareReply} label="Response rate" value={`${derived.responseRate}%`} note={`${derived.replied} of ${derived.totalReviews} replied`} tone="success"/>
     <MetricCard icon={Clock3} label="Positive sentiment" value={`${derived.positiveShare}%`} note={`${derived.escalated} escalated · ${derived.awaitingApproval} awaiting approval`}/></div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.85fr)]"><section className="card-3d rounded-lg bg-card p-5"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-base font-bold">Reputation pulse</h2><p className="mt-1 text-xs text-muted-foreground">Average rating across all channels</p></div><StatusPill tone={trendChange >= 0 ? "good" : "bad"}>{trendChange >= 0 ? "+" : "−"}{Math.abs(trendChange).toFixed(2)}</StatusPill></div><TrendChart points={derived.trend} labels={derived.periods}/></section>
-      <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><div className="flex items-center gap-2 text-brand-bright"><Sparkles className="size-4"/><span className="text-xs font-bold uppercase tracking-wider">Reputation signal</span></div><h2 className="mt-5 font-display text-xl font-bold">{topLocation ? `${topLocation.name} leads at ${topLocation.score.toFixed(1)}★` : "Waiting for your first review"}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{topSource ? `${topSource.source} brings the most feedback right now, averaging ${topSource.score.toFixed(1)} stars across ${topSource.count} review${topSource.count === 1 ? "" : "s"}.` : "Connect a channel to start collecting customer feedback."}</p><div className="mt-5 flex flex-wrap gap-2">{derived.sources.slice(0,3).map((source) => <StatusPill key={source.source} tone={source.score >= 4 ? "good" : source.score >= 3 ? "warn" : "bad"}>{source.source} · {source.count}</StatusPill>)}</div><Button className="mt-6 w-full bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage("Analytics")}>Explore insight <Activity/></Button></section></div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]"><RecentReviews setPage={setPage} reviews={reviews}/><LocationsSnapshot derived={derived}/></div></>;
+    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.85fr)]"><section className="card-3d rounded-lg bg-card p-5"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-base font-bold">Reputation pulse</h2><p className="mt-1 text-xs text-muted-foreground">Blended rating, per-channel movement and monthly review volume</p></div><StatusPill tone={trendChange >= 0 ? "good" : "bad"}>{trendChange >= 0 ? "+" : "−"}{Math.abs(trendChange).toFixed(2)} over {derived.periods.length} months</StatusPill></div><TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/>
+      <div className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">{derived.channels.map((channel) => <div key={channel.channel} className="rounded-md bg-surface p-3"><p className="truncate text-[11px] font-semibold text-muted-foreground">{channel.channel}</p><p className="mt-1 flex items-baseline gap-2"><span className="font-display text-lg font-bold">{channel.latest.toFixed(2)}</span><span className={cn("text-[11px] font-semibold", channel.change >= 0 ? "text-success" : "text-destructive")}>{channel.change >= 0 ? "+" : "−"}{Math.abs(channel.change).toFixed(2)}</span></p></div>)}</div></section>
+      <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><div className="flex items-center gap-2 text-brand-bright"><Sparkles className="size-4"/><span className="text-xs font-bold uppercase tracking-wider">Reputation signal</span></div>
+        <h2 className="mt-4 font-display text-lg font-bold leading-6">{action.title}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{action.detail}</p>
+        <div className="mt-4 grid gap-2 rounded-md bg-sidebar-elevated p-3 text-[11px] text-ink-muted">
+          <span className="flex items-center justify-between gap-3"><span>Strongest location</span><strong className="text-ink-foreground">{topLocation ? `${topLocation.name.split(",")[0]} · ${topLocation.score.toFixed(1)}★` : "—"}</strong></span>
+          <span className="flex items-center justify-between gap-3"><span>Busiest channel</span><strong className="text-ink-foreground">{topSource ? `${topSource.source} · ${topSource.count}` : "—"}</strong></span>
+          <span className="flex items-center justify-between gap-3"><span>Open queue</span><strong className="text-ink-foreground">{derived.needsReply + derived.escalated} review{derived.needsReply + derived.escalated === 1 ? "" : "s"}</strong></span>
+        </div>
+        <Button className="mt-4 w-full bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage(action.page)}>{action.cta} <Activity/></Button>
+        <Button variant="ghost" className="mt-2 w-full text-ink-muted hover:bg-sidebar-hover hover:text-ink-foreground" onClick={() => setPage("Analytics")}>See full analysis</Button></section></div>
+    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]"><RecentReviews setPage={setPage} reviews={reviews}/><LocationsSnapshot derived={derived}/></div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4"><SentimentPanel derived={derived}/><ChannelMix derived={derived} setPage={setPage}/><PipelinePanel derived={derived} setPage={setPage}/><TeamWorkload derived={derived} setPage={setPage}/></div></>;
+}
+
+function PanelShell({ title, subtitle, children, footer }: { title: string; subtitle: string; children: React.ReactNode; footer?: React.ReactNode }) {
+  return <section className="card-3d flex flex-col rounded-lg bg-card p-4"><h2 className="font-display text-sm font-bold">{title}</h2><p className="mt-1 text-[11px] text-muted-foreground">{subtitle}</p><div className="mt-4 flex-1 space-y-3">{children}</div>{footer && <div className="mt-4">{footer}</div>}</section>;
+}
+
+function SentimentPanel({ derived }: { derived: Derived }) {
+  const tone = (label: string) => label === "Positive" ? "bg-success" : label === "Mixed" ? "bg-warning" : "bg-destructive";
+  return <PanelShell title="Sentiment & ratings" subtitle="How the full review base splits today">
+    <div className="inset-3d flex h-2 overflow-hidden rounded-full bg-muted">{derived.sentimentMix.map((entry) => <span key={entry.sentiment} className={cn("h-full", tone(entry.sentiment))} style={{ width: `${entry.share}%` }}/>)}</div>
+    <div className="grid grid-cols-3 gap-2 text-[11px]">{derived.sentimentMix.map((entry) => <span key={entry.sentiment} className="rounded-md bg-surface p-2"><span className="block text-muted-foreground">{entry.sentiment}</span><strong className="font-display text-sm">{entry.share}%</strong> <span className="text-muted-foreground">· {entry.count}</span></span>)}</div>
+    <div className="space-y-1.5">{derived.ratingBreakdown.map((bucket) => <div key={bucket.stars} className="flex items-center gap-2 text-[11px]"><span className="w-6 shrink-0 text-muted-foreground">{bucket.stars}★</span><span className="inset-3d h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-brand" style={{ width: `${bucket.share}%` }}/></span><span className="w-8 shrink-0 text-right text-muted-foreground">{bucket.count}</span></div>)}</div>
+  </PanelShell>;
+}
+
+function ChannelMix({ derived, setPage }: { derived: Derived; setPage: (p: PageKey) => void }) {
+  const total = derived.sources.reduce((sum, source) => sum + source.count, 0) || 1;
+  return <PanelShell title="Where feedback comes from" subtitle="Volume and rating per channel" footer={<Button variant="outline" size="sm" className="w-full" onClick={() => setPage("Ratings")}>Compare channels</Button>}>
+    {derived.sources.map((source) => <div key={source.source}><div className="flex items-center justify-between text-[11px]"><span className="font-semibold">{source.source}</span><span className="text-muted-foreground">{source.count} · {source.score.toFixed(1)}★</span></div><div className="inset-3d mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-brand" style={{ width: `${Math.round((source.count / total) * 100)}%` }}/></div></div>)}
+    {!derived.sources.length && <p className="text-[11px] text-muted-foreground">No channels connected yet.</p>}
+  </PanelShell>;
+}
+
+function PipelinePanel({ derived, setPage }: { derived: Derived; setPage: (p: PageKey) => void }) {
+  return <PanelShell title="Response pipeline" subtitle="Every draft, by workflow stage" footer={<Button variant="outline" size="sm" className="w-full" onClick={() => setPage("Response Center")}>Open Response Center</Button>}>
+    {derived.pipeline.map((stage) => <div key={stage.stage} className="flex items-center justify-between rounded-md bg-surface px-3 py-2 text-[11px]"><span className="font-semibold">{stage.stage}</span><span className="font-display text-sm font-bold">{stage.count}</span></div>)}
+    <div className="grid grid-cols-2 gap-2 text-[11px]">{derived.priorityMix.filter((entry) => entry.count > 0).map((entry) => <span key={entry.priority} className="rounded-md bg-surface p-2"><span className="block text-muted-foreground">{entry.priority}</span><strong className="font-display text-sm">{entry.open}</strong> <span className="text-muted-foreground">open</span></span>)}</div>
+  </PanelShell>;
+}
+
+function TeamWorkload({ derived, setPage }: { derived: Derived; setPage: (p: PageKey) => void }) {
+  const top = derived.teammates.slice(0, 5);
+  const max = Math.max(1, ...top.map((member) => member.assigned));
+  return <PanelShell title="Team workload" subtitle="Assigned reviews and drafted responses" footer={<Button variant="outline" size="sm" className="w-full" onClick={() => setPage("Team")}>Manage team</Button>}>
+    {top.map((member) => <div key={member.name}><div className="flex items-center justify-between text-[11px]"><span className="truncate font-semibold">{member.name}</span><span className="text-muted-foreground">{member.assigned} assigned · {member.drafted} drafts</span></div><div className="inset-3d mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-brand-bright" style={{ width: `${Math.round((member.assigned / max) * 100)}%` }}/></div></div>)}
+    {!top.length && <p className="text-[11px] text-muted-foreground">No owners assigned yet.</p>}
+  </PanelShell>;
 }
 
 function RecentReviews({ setPage, reviews }: { setPage: (p: PageKey) => void; reviews: Review[] }) {
@@ -832,7 +943,7 @@ function ModulePage({ page, derived, reviews, responses, setPage, role }: { page
   return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
     <section className="card-3d rounded-lg bg-card"><div className="flex items-center justify-between border-b p-5"><div><h2 className="font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p></div><StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill></div>
       <div className="p-6"><div className="flex items-end gap-3"><span className="font-display text-5xl font-bold">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>
-        {showTrend ? <TrendChart points={derived.trend} labels={derived.periods}/> : <div className="my-8"><div className="grid h-36 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
+        {showTrend ? <TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/> : <div className="my-8"><div className="grid h-36 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
         <div className="grid gap-3 sm:grid-cols-2">{data.items.map((item) => <div key={item} className="card-3d rounded-md bg-surface p-3 text-left text-xs font-semibold">{item}</div>)}{!data.items.length && <p className="text-xs text-muted-foreground">No data recorded for this view yet.</p>}</div>
       </div></section>
     <aside className="space-y-4">
