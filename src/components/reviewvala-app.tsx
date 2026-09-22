@@ -177,7 +177,7 @@ function useWorkspaceData() {
     return review;
   }, []);
 
-  return { reviews: workspaceReviews, responses, snapshots, dataStatus, saveResponse, approveResponse, publishResponse, createReview };
+  return { reviews: workspaceReviews, responses, snapshots, dataStatus, refresh, saveResponse, approveResponse, publishResponse, createReview };
 }
 
 type Derived = ReturnType<typeof deriveWorkspace>;
