@@ -483,11 +483,12 @@ function RoleNotice({ children }: { children: React.ReactNode }) {
 /* ------------------------------------------------------------------ chrome --- */
 
 function Sidebar({ page, setPage, open, close, derived, role, actorName, memberEmail, onSignOut }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived; role: Role; actorName: string; memberEmail: string; onSignOut: () => void }) {
+  const { workspaceName } = useSession();
   const badges: Record<BadgeKey, number> = { needsReply: derived.needsReply, pendingResponses: derived.pendingResponses, alerts: derived.alerts.length };
   return <aside className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-transform duration-300 lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
     <div className="flex items-center justify-between px-2 pb-5"><BrandMark/><IconButton label="Close navigation" onClick={close} className="lg:hidden"><X/></IconButton></div>
     <button onClick={() => { setPage("Locations"); close(); }} className="mx-1 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-elevated p-2.5 text-left shadow-xs transition-colors hover:bg-sidebar-hover">
-      <span className="flex min-w-0 items-center gap-2.5"><span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">Northstar Group</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
+      <span className="flex min-w-0 items-center gap-2.5"><span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{workspaceName}</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
     </button>
     <div className="relative min-h-0 flex-1">
       <nav className="sidebar-scroll h-full space-y-3 overflow-y-auto pb-6 pr-1" aria-label="Primary navigation">{navGroups.map((group) => <div key={group.label}><p className="sticky top-0 z-10 mb-1 bg-sidebar/95 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-muted backdrop-blur">{group.label}</p><div className="space-y-0.5">{group.items.map((item) => { const Icon = item.icon; const active = page === item.name; const count = item.badge ? badges[item.badge] : 0; return <button key={item.name} onClick={() => { setPage(item.name); close(); }} className={cn("grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] font-medium transition-colors", active ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs" : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground")}><Icon className={cn("size-4", active && "text-brand-bright")}/><span className="truncate">{item.name}</span>{count > 0 && <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-brand text-brand-foreground" : "bg-sidebar-hover text-sidebar-muted")}>{count}</span>}</button>})}</div></div>)}</nav>
@@ -669,6 +670,7 @@ function todayISO() {
 }
 
 function ReviewForm({ close, createReview }: { close: () => void; createReview: (input: CreateReviewInput) => Promise<Review> }) {
+  const { workspaceName } = useSession();
   const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "", reviewDate: todayISO(), sentiment: "Positive", priority: "Normal", assignee: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -685,7 +687,7 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
   return <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-overlay/60 p-4 backdrop-blur-sm" onMouseDown={close}><form onSubmit={(event) => void submit(event)} onMouseDown={(event) => event.stopPropagation()} className="glass my-auto w-full max-w-2xl rounded-lg p-5 shadow-modal">
     <div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-lg font-bold">Add a review</h2><p className="mt-1 text-xs text-muted-foreground">Capture a customer conversation in the shared inbox.</p></div><IconButton type="button" label="Close review form" onClick={close}><X/></IconButton></div>
     <div className="mt-5 grid gap-4 sm:grid-cols-2">
-      <Field label="Business"><Input value="Northstar Group" readOnly className="bg-muted/60 font-normal"/></Field>
+      <Field label="Business"><Input value={workspaceName} readOnly className="bg-muted/60 font-normal"/></Field>
       <Field label="Location"><Input required value={form.location} onChange={(event) => update({ location: event.target.value })} placeholder="Indiranagar, Bengaluru" className="font-normal"/></Field>
       <Field label="Platform"><Select value={form.source} onChange={(value) => update({ source: value })} options={SOURCES}/></Field>
       <Field label="Reviewer name"><Input required value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="Maya Chen" className="font-normal"/></Field>
@@ -966,6 +968,7 @@ function buildModuleCard(page: ModuleKey, derived: Derived, responses: ResponseR
 }
 
 function ModulePage({ page, derived, reviews, responses, setPage, role }: { page: ModuleKey; derived: Derived; reviews: Review[]; responses: ResponseRecord[]; setPage: (p: PageKey) => void; role: Role }) {
+  const { workspaceName } = useSession();
   const data = buildModuleCard(page, derived, responses, role);
   const distribution = [5,4,3,2,1].map((rating) => ({ rating, count: reviews.filter((review) => review.rating === rating).length }));
   const maxCount = Math.max(1, ...distribution.map((bucket) => bucket.count));
@@ -987,7 +990,7 @@ function ModulePage({ page, derived, reviews, responses, setPage, role }: { page
   return <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
     <section className="card-3d rounded-lg bg-card">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b px-5 py-4">
-        <div className="min-w-0"><h2 className="truncate font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {derived.sources.length} channel{derived.sources.length === 1 ? "" : "s"}</p></div>
+        <div className="min-w-0"><h2 className="truncate font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">{workspaceName} · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {derived.sources.length} channel{derived.sources.length === 1 ? "" : "s"}</p></div>
         <StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill>
       </div>
       <div className="p-5 lg:p-6">
@@ -1246,11 +1249,12 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
 /* ------------------------------------------------------------- membership --- */
 
 function PendingAccess({ email, status, onRecheck, onSignOut }: { email: string; status: string; onRecheck: () => void; onSignOut: () => void }) {
+  const { workspaceName } = useSession();
   return <div className="grid min-h-screen place-items-center bg-background px-4">
     <div className="card-3d outline-glass w-full max-w-md rounded-xl bg-card p-7 text-center">
       <span className="icon-3d mx-auto size-11 bg-brand-soft text-brand"><ShieldCheck className="size-5"/></span>
       <h1 className="mt-4 font-display text-xl font-bold text-card-foreground">{status === "Suspended" ? "Access suspended" : "Waiting for approval"}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{status === "Suspended" ? "An administrator has suspended this account for the Northstar Group workspace." : "Your account is registered. A workspace administrator has to approve it before the review data becomes visible."}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{status === "Suspended" ? "An administrator has suspended this account for the " + workspaceName + " workspace." : "Your account is registered. A workspace administrator has to approve it before the review data becomes visible."}</p>
       {email && <p className="mt-3 text-xs text-muted-foreground">Signed in as <span className="font-semibold text-card-foreground">{email}</span></p>}
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
         <button onClick={onRecheck} className="h-9 rounded-md bg-brand px-4 text-xs font-semibold text-brand-foreground">Check again</button>
@@ -1372,7 +1376,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
     <div className="lg:pl-[248px]">
       <Topbar onMenu={() => setMenu(true)} onSearch={() => setSearch(true)} onNotifications={() => setNotifications(true)} alertCount={derived.alerts.length} role={role}/>
       <main className="mx-auto max-w-[1600px] px-4 py-5 pb-24 lg:px-7 lg:py-7">
-        <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4"><div className="min-w-0"><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand">Northstar Group / {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p><h1 className="truncate font-display text-2xl font-bold lg:text-[28px]">{page}</h1><p className="mt-1 hidden text-sm text-muted-foreground sm:block">{pageDescriptions[page]}</p></div><Button className="hidden shadow-brand sm:flex" onClick={() => setPage(page === "Reviews" ? "Response Center" : "Reviews")}>{page === "Reviews" ? <><MessageSquareReply/>Respond</> : <><Plus/>Open reviews</>}</Button></header>
+        <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4"><div className="min-w-0"><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand">{workspaceName} / {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p><h1 className="truncate font-display text-2xl font-bold lg:text-[28px]">{page}</h1><p className="mt-1 hidden text-sm text-muted-foreground sm:block">{pageDescriptions[page]}</p></div><Button className="hidden shadow-brand sm:flex" onClick={() => setPage(page === "Reviews" ? "Response Center" : "Reviews")}>{page === "Reviews" ? <><MessageSquareReply/>Respond</> : <><Plus/>Open reviews</>}</Button></header>
         {resolvedState === "Live data" ? content : <StatePanel state={resolvedState} onRetry={() => void data.refresh()}/>}
       </main>
     </div>
