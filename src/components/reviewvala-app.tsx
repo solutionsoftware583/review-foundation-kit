@@ -786,8 +786,8 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
     finally { setSaving(false); }
   };
 
-  return <><div className="card-3d grid min-h-[calc(100vh-150px)] overflow-hidden rounded-lg bg-card xl:grid-cols-[minmax(340px,.9fr)_minmax(460px,1.3fr)]">
-    <section className="border-r">
+  return <><div className="grid min-h-[calc(100vh-150px)] items-start gap-5 xl:grid-cols-[minmax(340px,.85fr)_minmax(480px,1.4fr)]">
+    <section className="card-3d overflow-hidden rounded-lg bg-card xl:sticky xl:top-4">
       <div className="border-b p-3">
         <div className="flex gap-2">
           <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground"/><Input className="inset-3d pl-9" value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} placeholder="Search reviews"/></div>
