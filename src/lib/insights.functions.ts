@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 
 const WORKSPACE = "northstar-group";
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "openai/gpt-6-astra";
 
 const inputSchema = z.object({
   text: z.string().trim().min(20, "Add at least 20 characters of review text.").max(6000),
@@ -49,21 +49,32 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
     const apiKey = process.env["LOVABLE_API_KEY"];
     if (!apiKey) throw new Error("AI is not configured for this workspace.");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/responses", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Lovable-API-Key": apiKey,
+        "X-Lovable-AIG-SDK": "fetch",
+      },
       body: JSON.stringify({
         model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+        stream: true,
+        instructions: SYSTEM_PROMPT,
+        reasoning: { effort: "low", summary: "auto" },
+        input: [
           {
             role: "user",
-            content: `Analyse this customer review and return JSON with keys: headline (one sentence), sentiment (Positive|Mixed|Negative), severity (Low|Medium|High|Critical), themes (up to 4 short labels), root_causes (up to 4 objects with cause, evidence quoted or paraphrased from the review, confidence Low|Medium|High), recommendations (up to 4 objects with action, owner, effort Low|Medium|High, impact Low|Medium|High, timeframe such as "This week").\n\nREVIEW TEXT:\n${data.text}`,
+            content: [
+              {
+                type: "input_text",
+                text: `Analyse this customer review. headline is one sentence. themes: up to 4 short labels. root_causes: up to 4 items with cause, evidence quoted or paraphrased from the review, and confidence. recommendations: up to 4 items with action, internal owner role, effort, impact and a timeframe such as "This week".\n\nREVIEW TEXT:\n${data.text}`,
+              },
+            ],
           },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
+        text: {
+          format: {
+            type: "json_schema",
             name: "review_analysis",
             strict: true,
             schema: {
@@ -112,15 +123,38 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
 
     if (response.status === 429) throw new Error("AI rate limit reached. Try again in a moment.");
     if (response.status === 402) throw new Error("AI credits are exhausted for this workspace.");
-    if (!response.ok) {
-      const detail = await response.text();
+    if (!response.ok || !response.body) {
+      const detail = await response.text().catch(() => "");
       console.error("[insights] AI gateway error", response.status, detail);
       throw new Error("The analysis service is unavailable right now.");
     }
 
-    const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-    const content = payload.choices?.[0]?.message?.content;
-    if (!content) throw new Error("The analysis came back empty. Try again.");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const event = JSON.parse(payload) as { type?: string; delta?: string; response?: { output_text?: string } };
+          if (event.type === "response.output_text.delta" && typeof event.delta === "string") content += event.delta;
+          else if (event.type === "response.completed" && typeof event.response?.output_text === "string" && !content) content = event.response.output_text;
+        } catch {
+          /* ignore keep-alive and partial frames */
+        }
+      }
+    }
+
+    if (!content.trim()) throw new Error("The analysis came back empty. Try again.");
+
 
     let parsed: ReviewAnalysis;
     try {

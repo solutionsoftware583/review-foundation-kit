@@ -828,6 +828,8 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
 
         <blockquote className="mt-6 border-l-2 border-brand pl-4 text-[15px] leading-7 text-foreground">“{selected.text}”</blockquote>
 
+        <ReviewInsightPanel key={selected.id} review={selected} role={role} can={can}/>
+
         <div className="card-3d outline-glass mt-6 rounded-lg bg-card p-5">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="min-w-0">
@@ -968,14 +970,54 @@ function ModulePage({ page, derived, reviews, responses, setPage, role }: { page
   const distribution = [5,4,3,2,1].map((rating) => ({ rating, count: reviews.filter((review) => review.rating === rating).length }));
   const maxCount = Math.max(1, ...distribution.map((bucket) => bucket.count));
   const showTrend = page === "Ratings" || page === "Analytics" || page === "Reports";
-  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
-    <section className="card-3d rounded-lg bg-card"><div className="flex items-center justify-between border-b p-5"><div><h2 className="font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p></div><StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill></div>
-      <div className="p-6"><div className="flex items-end gap-3"><span className="font-display text-5xl font-bold">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>
-        {showTrend ? <TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/> : <div className="my-8"><div className="grid h-36 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
-        <div className="grid gap-3 sm:grid-cols-2">{data.items.map((item) => <div key={item} className="card-3d rounded-md bg-surface p-3 text-left text-xs font-semibold">{item}</div>)}{!data.items.length && <p className="text-xs text-muted-foreground">No data recorded for this view yet.</p>}</div>
-      </div></section>
-    <aside className="space-y-4">
+  const headline: [string, string][] = [
+    ["Reviews", String(derived.totalReviews)],
+    ["Rating", derived.overallRating.toFixed(2)],
+    ["Response rate", `${derived.responseRate}%`],
+    ["Positive", `${derived.positiveShare}%`],
+  ];
+  const queue: [string, string, "good" | "warn" | "bad" | "brand" | "neutral"][] = [
+    ["Needs reply", String(derived.needsReply), derived.needsReply ? "warn" : "good"],
+    ["Escalated", String(derived.escalated), derived.escalated ? "bad" : "good"],
+    ["Unassigned", String(derived.unassigned), derived.unassigned ? "warn" : "good"],
+    ["Awaiting approval", String(derived.awaitingApproval), derived.awaitingApproval ? "brand" : "good"],
+    ["Urgent priority", String(derived.urgent), derived.urgent ? "bad" : "good"],
+  ];
+
+  return <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
+    <section className="card-3d rounded-lg bg-card">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b px-5 py-4">
+        <div className="min-w-0"><h2 className="truncate font-display text-lg font-bold">{page} overview</h2><p className="mt-1 text-xs text-muted-foreground">Northstar Group · {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {derived.sources.length} channel{derived.sources.length === 1 ? "" : "s"}</p></div>
+        <StatusPill tone="brand">{derived.totalReviews} reviews</StatusPill>
+      </div>
+      <div className="p-5 lg:p-6">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
+          <div className="min-w-0 flex items-end gap-3"><span className="font-display text-5xl font-bold leading-none">{data.metric}</span><span className="pb-1 text-sm text-muted-foreground">{data.label}</span></div>
+        </div>
+        <dl className="inset-3d mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg bg-surface p-4 sm:grid-cols-4">
+          {headline.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt><dd className="mt-0.5 font-display text-lg font-bold">{value}</dd></div>)}
+        </dl>
+        {showTrend
+          ? <TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/>
+          : <div className="my-6"><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Rating distribution</p><div className="mt-3 grid h-32 grid-cols-5 items-end gap-3">{distribution.map((bucket) => <div key={bucket.rating} className="flex h-full flex-col justify-end"><div className="outline-glass rounded-t bg-brand shadow-brand" style={{ height: `${Math.max(4, (bucket.count / maxCount) * 100)}%` }}/></div>)}</div><div className="mt-2 grid grid-cols-5 text-center text-[10px] text-muted-foreground">{distribution.map((bucket) => <span key={bucket.rating}>{bucket.rating}★ · {bucket.count}</span>)}</div></div>}
+        <p className="mt-6 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Breakdown</p>
+        <ul className="mt-2 grid gap-x-6 sm:grid-cols-2">{data.items.map((item, index) => <li key={`${item}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-3 border-b border-border/70 py-2.5 last:border-0">
+          <span className="text-[10px] font-bold tabular-nums text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
+          <span className="min-w-0 text-xs font-semibold leading-5">{item}</span>
+        </li>)}{!data.items.length && <li className="py-3 text-xs text-muted-foreground">No data recorded for this view yet.</li>}</ul>
+      </div>
+    </section>
+
+    <aside className="space-y-5">
       <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><span className="icon-3d size-9 bg-sidebar-hover text-brand-bright"><Sparkles className="size-4"/></span><h2 className="mt-4 font-display text-lg font-bold">What matters now</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{data.insight}</p><Button className="mt-5 bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage(page === "Team" || page === "Settings" ? "Response Center" : "Reviews")}>{page === "Team" || page === "Settings" ? "Open Response Center" : "Open reviews"}</Button></section>
+
+      <section className="card-3d rounded-lg bg-card p-5">
+        <h2 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Open queue</h2>
+        <ul className="mt-3">{queue.map(([label, value, tone]) => <li key={label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 py-2 last:border-0">
+          <span className="min-w-0 truncate text-xs font-semibold">{label}</span><StatusPill tone={tone}>{value}</StatusPill>
+        </li>)}</ul>
+      </section>
+
       <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Quick actions</h2><div className="mt-3 grid gap-2"><Button variant="outline" className="justify-start" onClick={() => setPage("Reviews")}><Plus/>Add a review</Button><Button variant="outline" className="justify-start" onClick={() => setPage("Response Center")}><Users/>Review the response queue</Button></div></section>
     </aside>
   </div>;
@@ -1031,6 +1073,82 @@ type InsightRecord = {
 
 function severityTone(severity: string): "good" | "warn" | "bad" | "brand" {
   return severity === "Critical" || severity === "High" ? "bad" : severity === "Medium" ? "warn" : "good";
+}
+
+function mapInsight(row: {
+  id: string; review_id: string | null; source_text: string; headline: string; sentiment: string; severity: string;
+  themes: unknown; root_causes: unknown; recommendations: unknown; created_by: string; created_at: string;
+}): InsightRecord {
+  return {
+    id: row.id, review_id: row.review_id, source_text: row.source_text, headline: row.headline,
+    sentiment: row.sentiment, severity: row.severity,
+    themes: (row.themes ?? []) as string[],
+    root_causes: (row.root_causes ?? []) as RootCause[],
+    recommendations: (row.recommendations ?? []) as Recommendation[],
+    created_by: row.created_by, created_at: row.created_at,
+  };
+}
+
+function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role; can: (action: Permission) => boolean }) {
+  const [insight, setInsight] = useState<InsightRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const allowed = can("draftResponse");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("reviewvala_insights").select("*").eq("workspace_slug", WORKSPACE).eq("review_id", review.id)
+      .order("created_at", { ascending: false }).limit(1);
+    const row = data?.[0];
+    setInsight(row ? mapInsight(row) : null);
+    setLoading(false);
+  }, [review.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const run = async () => {
+    setError(null); setBusy(true);
+    try {
+      await analyzeReviewText({ data: { text: review.text, reviewId: review.id, author: ACTOR_NAME } });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The analysis could not be completed.");
+    } finally { setBusy(false); }
+  };
+
+  return <section className="card-3d mt-5 rounded-lg bg-card p-5">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+      <div className="min-w-0">
+        <h3 className="flex items-center gap-2 font-display text-base font-bold"><span className="icon-3d size-7 bg-brand-soft text-brand"><Sparkles className="size-3.5"/></span>AI analysis</h3>
+        <p className="mt-1 text-[11px] text-muted-foreground">Sentiment, root causes and recommended service fixes for this review.</p>
+      </div>
+      {allowed && <Button size="sm" variant={insight ? "outline" : "default"} disabled={busy || review.text.trim().length < 20} onClick={() => void run()}>{busy ? <><Loader2 className="animate-spin"/>Analysing…</> : <><Sparkles/>{insight ? "Re-run" : "Analyse review"}</>}</Button>}
+    </div>
+    {!allowed && <div className="mt-3"><RoleNotice>{role} access can read analyses but cannot run a new one.</RoleNotice></div>}
+    {error && <p role="alert" className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">{error}</p>}
+    {loading && <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin text-brand"/>Loading analysis…</p>}
+    {!loading && !insight && !busy && <p className="mt-4 rounded-md border border-dashed bg-surface p-4 text-xs text-muted-foreground">No analysis yet for this review. Run one to get root causes and recommended improvements.</p>}
+    {insight && <>
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <p className="min-w-0 text-sm font-semibold leading-6">{insight.headline}</p>
+        <span className="flex flex-wrap justify-end gap-2"><StatusPill tone={severityTone(insight.severity)}>{insight.severity} severity</StatusPill><StatusPill tone={insight.sentiment === "Positive" ? "good" : insight.sentiment === "Negative" ? "bad" : "warn"}>{insight.sentiment}</StatusPill></span>
+      </div>
+      {!!insight.themes.length && <div className="mt-3 flex flex-wrap gap-2">{insight.themes.map((theme) => <span key={theme} className="rounded-full border border-border bg-surface px-3 py-1 text-[11px] font-semibold">{theme}</span>)}</div>}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Root causes</p>
+          <ul className="mt-2 space-y-2">{insight.root_causes.map((item, index) => <li key={index} className="inset-3d rounded-md p-3 text-sm"><strong className="block text-xs">{item.cause}</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">{item.evidence}</span><span className="mt-2 inline-block text-[10px] font-bold uppercase tracking-wider text-brand">{item.confidence} confidence</span></li>)}</ul>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Recommended improvements</p>
+          <ul className="mt-2 space-y-2">{insight.recommendations.map((item, index) => <li key={index} className="inset-3d rounded-md p-3 text-sm"><strong className="block text-xs">{item.action}</strong><span className="mt-1 block text-[11px] text-muted-foreground">{item.owner} · {item.timeframe}</span><span className="mt-2 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wider"><span className="text-brand">Impact {item.impact}</span><span className="text-muted-foreground">Effort {item.effort}</span></span></li>)}</ul>
+        </div>
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground">Analysed by {insight.created_by} · {formatMoment(insight.created_at)}</p>
+    </>}
+  </section>;
 }
 
 function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; can: (action: Permission) => boolean }) {
