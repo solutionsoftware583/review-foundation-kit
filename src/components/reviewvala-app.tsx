@@ -35,6 +35,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -429,6 +430,25 @@ const pageDescriptions: Record<PageKey, string> = {
   Reports: "Create polished summaries for leaders and stakeholders.",
   Settings: "Configure your workspace, channels, and response standards.",
 };
+
+export const PAGE_PATHS = {
+  Overview: "/",
+  Reviews: "/reviews",
+  "Response Center": "/response-center",
+  Ratings: "/ratings",
+  Analytics: "/analytics",
+  Improve: "/improve",
+  Alerts: "/alerts",
+  Locations: "/locations",
+  Team: "/team",
+  Reports: "/reports",
+  Settings: "/settings",
+} as const satisfies Record<PageKey, string>;
+
+export const pageMeta = (page: PageKey) => ({
+  title: `${page} · ReviewVala™`,
+  description: pageDescriptions[page],
+});
 
 /* ------------------------------------------------------------- primitives --- */
 
@@ -1245,12 +1265,12 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
 
 /* -------------------------------------------------------------------- app --- */
 
-export function ReviewValaApp() {
-  const [page, setPage] = useState<PageKey>("Overview");
+export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId?: string | null }) {
+  const navigate = useNavigate();
+  const setPage = useCallback((next: PageKey) => { void navigate({ to: PAGE_PATHS[next] }); }, [navigate]);
   const [menu, setMenu] = useState(false);
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
-  const [focusId, setFocusId] = useState<string | null>(null);
   const { role, setRole, can } = useRole();
   const data = useWorkspaceData(role);
   const derived = useMemo(() => deriveWorkspace(data.reviews, data.responses, data.snapshots), [data.reviews, data.responses, data.snapshots]);
@@ -1264,7 +1284,7 @@ export function ReviewValaApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openReview = (review: Review) => { setFocusId(review.id); setPage("Reviews"); };
+  const openReview = (review: Review) => { void navigate({ to: "/reviews", search: { review: review.id } }); };
 
   const content = page === "Overview"
     ? <Overview setPage={setPage} reviews={data.reviews} responses={data.responses} derived={derived}/>
