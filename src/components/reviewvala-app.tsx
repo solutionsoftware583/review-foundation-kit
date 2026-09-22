@@ -37,6 +37,8 @@ import {
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Overlay } from "@/components/overlay";
+import { formatDate, formatMoment } from "@/lib/format";
+import { AuditLogPanel, BusinessesPanel, InvitesPanel, ProfilePanel, WorkspaceSettingsPanel, logAudit } from "@/components/workspace-admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -144,18 +146,6 @@ function mapReview(row: ReviewRow): Review {
     rating: row.rating, time: row.time_label, status: row.status, sentiment: row.sentiment, text: row.review_text,
     reviewDate: row.review_date, priority: row.priority ?? "Normal", assignee: row.assignee, createdAt: row.created_at,
   };
-}
-
-function formatDate(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-}
-
-function formatMoment(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function initialsOf(name: string) {
@@ -1323,7 +1313,7 @@ function PendingAccess({ email, status, onRecheck, onSignOut }: { email: string;
   </div>;
 }
 
-function MembersPanel({ role, currentUserId }: { role: Role; currentUserId: string }) {
+function MembersPanel({ role, currentUserId, actorName }: { role: Role; currentUserId: string; actorName: string }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [busy, setBusy] = useState<string | null>(null);
@@ -1340,10 +1330,20 @@ function MembersPanel({ role, currentUserId }: { role: Role; currentUserId: stri
 
   const update = async (id: string, patch: { role?: Role; status?: string }) => {
     setBusy(id);
+    const target = members.find((item) => item.id === id);
     const result = await supabase.from("reviewvala_members").update(patch).eq("id", id).select("id, user_id, workspace_slug, email, full_name, role, status, created_at").single();
     setBusy(null);
     if (result.error) return;
     setMembers((current) => current.map((item) => (item.id === id ? (result.data as Member) : item)));
+    if (currentUserId) {
+      await logAudit({
+        actorUserId: currentUserId,
+        actorName,
+        action: patch.status ? `Member ${patch.status.toLowerCase()}` : "Member role changed",
+        target: target?.email ?? "",
+        detail: patch.role ? `New role ${patch.role}` : "",
+      });
+    }
   };
 
   if (role !== "Admin") {
@@ -1370,6 +1370,7 @@ function MembersPanel({ role, currentUserId }: { role: Role; currentUserId: stri
           <select value={item.role} disabled={busy === item.id || item.user_id === currentUserId} onChange={(event) => void update(item.id, { role: event.target.value as Role })} className="h-8 rounded-md border bg-surface px-2 text-xs font-semibold text-foreground">{ROLES.map((option) => <option key={option} value={option}>{option}</option>)}</select>
           {item.status !== "Active" && <button disabled={busy === item.id} onClick={() => void update(item.id, { status: "Active" })} className="h-8 rounded-md bg-brand px-3 text-xs font-semibold text-brand-foreground">Approve</button>}
           {item.status === "Active" && item.user_id !== currentUserId && <button disabled={busy === item.id} onClick={() => void update(item.id, { status: "Suspended" })} className="h-8 rounded-md border px-3 text-xs font-semibold text-foreground">Suspend</button>}
+          {item.user_id !== currentUserId && item.status !== "Removed" && <button disabled={busy === item.id} onClick={() => void update(item.id, { status: "Removed", role: "Viewer" })} className="h-8 rounded-md border border-destructive px-3 text-xs font-semibold text-destructive">Remove</button>}
         </div>
       </div>)}
     </div>}
@@ -1389,7 +1390,24 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   const workspaceName = session.workspaceName;
   const { role, can, actorName, member } = session;
   const data = useWorkspaceData(role, actorName);
-  const derived = useMemo(() => deriveWorkspace(data.reviews, data.responses, data.snapshots), [data.reviews, data.responses, data.snapshots]);
+  const { businessLabel, setBusinessLabel, businesses } = session;
+
+  // The business selector narrows every screen to one location.
+  const visible = useMemo(() => {
+    if (!businessLabel) return { reviews: data.reviews, responses: data.responses, events: data.events, notes: data.notes };
+    const reviews = data.reviews.filter((review) => review.location === businessLabel);
+    const reviewIds = new Set(reviews.map((review) => review.id));
+    const responses = data.responses.filter((response) => reviewIds.has(response.review_id));
+    const responseIds = new Set(responses.map((response) => response.id));
+    return {
+      reviews,
+      responses,
+      events: data.events.filter((event) => responseIds.has(event.response_id)),
+      notes: data.notes.filter((note) => reviewIds.has(note.review_id)),
+    };
+  }, [businessLabel, data.reviews, data.responses, data.events, data.notes]);
+
+  const derived = useMemo(() => deriveWorkspace(visible.reviews, visible.responses, data.snapshots), [visible.reviews, visible.responses, data.snapshots]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1408,16 +1426,20 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   };
 
   const content = page === "Overview"
-    ? <Overview setPage={setPage} reviews={data.reviews} responses={data.responses} derived={derived}/>
+    ? <Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>
     : page === "Reviews"
-      ? <ReviewsPage reviews={data.reviews} responses={data.responses} events={data.events} notes={data.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} addNote={data.addNote} createReview={data.createReview}/>
+      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
-        ? <ResponseCenter reviews={data.reviews} responses={data.responses} events={data.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
+        ? <ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
         : page === "Improve"
-          ? <ImprovePage reviews={data.reviews} role={role} can={can}/>
+          ? <ImprovePage reviews={visible.reviews} role={role} can={can}/>
           : page === "Team"
-            ? <div className="grid gap-5"><MembersPanel role={role} currentUserId={member?.user_id ?? ""}/><ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/></div>
-            : <ModulePage page={page} derived={derived} reviews={data.reviews} responses={data.responses} setPage={setPage} role={role}/>;
+            ? <div className="grid gap-5"><MembersPanel role={role} currentUserId={member?.user_id ?? ""} actorName={actorName}/><InvitesPanel role={role}/><AuditLogPanel/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
+            : page === "Settings"
+              ? <div className="grid gap-5"><ProfilePanel/><WorkspaceSettingsPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
+              : page === "Locations"
+                ? <div className="grid gap-5"><BusinessesPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
+                : <ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/>;
 
   const resolvedState: PreviewState = data.dataStatus === "loading" ? "Loading" : data.dataStatus === "error" ? "Error" : "Live data";
 
@@ -1436,12 +1458,18 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
     <div className="lg:pl-[248px]">
       <Topbar onMenu={() => setMenu(true)} onSearch={() => setSearch(true)} onNotifications={() => setNotifications(true)} alertCount={derived.alerts.length} role={role}/>
       <main className="mx-auto max-w-[1600px] px-4 py-5 pb-24 lg:px-7 lg:py-7">
-        <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4"><div className="min-w-0"><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand">{workspaceName} / {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p><h1 className="truncate font-display text-2xl font-bold lg:text-[28px]">{page}</h1><p className="mt-1 hidden text-sm text-muted-foreground sm:block">{pageDescriptions[page]}</p></div><Button className="hidden shadow-brand sm:flex" onClick={() => setPage(page === "Reviews" ? "Response Center" : "Reviews")}>{page === "Reviews" ? <><MessageSquareReply/>Respond</> : <><Plus/>Open reviews</>}</Button></header>
+        <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4"><div className="min-w-0"><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand">{workspaceName} / {derived.locations.length} location{derived.locations.length === 1 ? "" : "s"}</p><h1 className="truncate font-display text-2xl font-bold lg:text-[28px]">{page}</h1>
+          <label htmlFor="business-selector" className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-muted-foreground"><MapPin className="size-3.5 text-brand"/>Showing
+            <select id="business-selector" value={businessLabel ?? ""} onChange={(event) => setBusinessLabel(event.target.value || null)} className="inset-3d h-8 max-w-[240px] rounded-md border bg-background px-2 text-xs font-semibold text-foreground outline-none focus:ring-2 focus:ring-ring">
+              <option value="">All locations</option>
+              {businesses.filter((business) => business.is_active).map((business) => <option key={business.id} value={business.location_label}>{business.location_label}</option>)}
+            </select>
+          </label><p className="mt-1 hidden text-sm text-muted-foreground sm:block">{pageDescriptions[page]}</p></div><Button className="hidden shadow-brand sm:flex" onClick={() => setPage(page === "Reviews" ? "Response Center" : "Reviews")}>{page === "Reviews" ? <><MessageSquareReply/>Respond</> : <><Plus/>Open reviews</>}</Button></header>
         {resolvedState === "Live data" ? content : <StatePanel state={resolvedState} onRetry={() => void data.refresh()}/>}
       </main>
     </div>
     <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card px-2 py-1.5 shadow-modal lg:hidden">{(["Overview","Reviews","Response Center","Analytics","Settings"] as PageKey[]).map((item) => { const Icon = navGroups.flatMap((group) => group.items).find((navItem) => navItem.name === item)?.icon ?? Gauge; return <button key={item} onClick={() => setPage(item)} className={cn("flex flex-col items-center gap-1 py-1 text-[9px]", page === item ? "text-brand" : "text-muted-foreground")}><Icon className="size-5"/><span>{item === "Response Center" ? "Respond" : item}</span></button>; })}</nav>
-    {search && <SearchOverlay close={() => setSearch(false)} reviews={data.reviews} onSelect={openReview}/>}
+    {search && <SearchOverlay close={() => setSearch(false)} reviews={visible.reviews} onSelect={openReview}/>}
     {notifications && <Notifications close={() => setNotifications(false)} derived={derived} goTo={setPage}/>}
   </div></TooltipProvider>;
 }
