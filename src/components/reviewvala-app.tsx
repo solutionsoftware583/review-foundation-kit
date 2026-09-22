@@ -904,7 +904,7 @@ export function ReviewValaApp() {
         {resolvedState === "Live data" ? content : <StatePanel state={resolvedState} onRetry={() => void data.refresh()}/>}
       </main>
     </div>
-    <nav className="glass fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 rounded-none border-x-0 border-b-0 px-2 py-1.5 lg:hidden">{(["Overview","Reviews","Response Center","Analytics","Settings"] as PageKey[]).map((item) => { const Icon = navGroups.flatMap((group) => group.items).find((navItem) => navItem.name === item)?.icon ?? Gauge; return <button key={item} onClick={() => setPage(item)} className={cn("flex flex-col items-center gap-1 py-1 text-[9px]", page === item ? "text-brand" : "text-muted-foreground")}><Icon className="size-5"/><span>{item === "Response Center" ? "Respond" : item}</span></button>; })}</nav>
+    <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-card px-2 py-1.5 shadow-modal lg:hidden">{(["Overview","Reviews","Response Center","Analytics","Settings"] as PageKey[]).map((item) => { const Icon = navGroups.flatMap((group) => group.items).find((navItem) => navItem.name === item)?.icon ?? Gauge; return <button key={item} onClick={() => setPage(item)} className={cn("flex flex-col items-center gap-1 py-1 text-[9px]", page === item ? "text-brand" : "text-muted-foreground")}><Icon className="size-5"/><span>{item === "Response Center" ? "Respond" : item}</span></button>; })}</nav>
     {search && <SearchOverlay close={() => setSearch(false)} reviews={data.reviews} onSelect={openReview}/>}
     {notifications && <Notifications close={() => setNotifications(false)} derived={derived} goTo={setPage}/>}
   </div></TooltipProvider>;
