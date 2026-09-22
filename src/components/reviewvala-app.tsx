@@ -901,7 +901,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
   const [linkedId, setLinkedId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const allowed = can("draft");
+  const allowed = can("draftResponse");
 
   const load = useCallback(async () => {
     setLoading(true);
