@@ -1112,7 +1112,7 @@ function Notifications({ close, derived, goTo }: { close: () => void; derived: D
   return <Overlay title="Notifications" description="Alerts that need your attention." onClose={close} overlayClassName="bg-overlay/50 backdrop-blur-none" className="right-0 top-0 h-full w-full max-w-sm"><aside className="glass h-full overflow-y-auto rounded-none p-5 shadow-modal">
     <div className="flex items-center justify-between"><div><h2 className="font-display text-lg font-bold">Notifications</h2><p className="mt-1 text-xs text-muted-foreground">{derived.alerts.length ? `${derived.alerts.length} need your attention` : "Nothing needs attention"}</p></div><IconButton label="Close notifications" onClick={close}><X/></IconButton></div>
     <div className="mt-6 space-y-2">{derived.alerts.map((alert, index) => <button key={`${alert.title}-${index}`} onClick={() => { goTo(alert.tone === "brand" ? "Response Center" : "Reviews"); close(); }} className="card-3d w-full rounded-lg bg-card p-4 text-left"><span className="flex items-start gap-3"><span className={cn("mt-1 size-2 shrink-0 rounded-full", alert.tone === "bad" ? "bg-destructive" : alert.tone === "warn" ? "bg-warning" : "bg-brand")}/><span className="min-w-0"><strong className="block text-sm">{alert.title}</strong><span className="mt-1 block text-xs text-muted-foreground">{alert.meta}</span></span></span></button>)}{!derived.alerts.length && <p className="rounded-lg border p-6 text-center text-xs text-muted-foreground">You're all caught up.</p>}</div>
-  </aside></div>;
+  </aside></Overlay>;
 }
 
 /* ----------------------------------------------------------------- improve --- */
