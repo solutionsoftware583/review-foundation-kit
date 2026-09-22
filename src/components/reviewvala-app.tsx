@@ -570,18 +570,76 @@ function JourneyStrip({ derived, responses }: { derived: Derived; responses: Res
   return <section className="card-3d mb-4 rounded-lg bg-card p-4"><div className="flex items-center justify-between"><h2 className="font-display text-sm font-bold">Your reputation journey</h2><span className="text-[11px] text-muted-foreground">{active} of {journey.length} stages active</span></div><ol className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">{journey.map((item, index) => <li key={item.step} className="card-3d rounded-md bg-surface p-3"><div className="flex items-center gap-2"><span className={cn("icon-3d size-5 rounded-full text-[10px] font-bold", done[index] ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground")}>{done[index] ? <Check className="size-3"/> : index + 1}</span><span className="text-xs font-semibold">{item.step}</span></div><p className="mt-2 text-[11px] leading-4 text-muted-foreground">{item.copy}</p></li>)}</ol></section>;
 }
 
+function nextBestAction(derived: Derived): { title: string; detail: string; cta: string; page: PageKey } {
+  if (derived.escalated > 0) return { title: `${derived.escalated} escalated review${derived.escalated === 1 ? "" : "s"} need an owner today`, detail: "Escalations age fastest and drive the most visible damage. Clear these before anything else.", cta: "Open escalations", page: "Reviews" };
+  if (derived.awaitingApproval > 0) return { title: `${derived.awaitingApproval} response${derived.awaitingApproval === 1 ? "" : "s"} waiting on approval`, detail: "Drafts are written and blocked on a reviewer. Approving them lifts response rate immediately.", cta: "Approve responses", page: "Response Center" };
+  if (derived.unassigned > 0) return { title: `${derived.unassigned} review${derived.unassigned === 1 ? "" : "s"} have no owner`, detail: "Unassigned reviews are the main cause of slow replies. Route them to a teammate now.", cta: "Assign owners", page: "Reviews" };
+  if (derived.needsReply > 0) return { title: `${derived.needsReply} review${derived.needsReply === 1 ? "" : "s"} still need a reply`, detail: "Replying within 48 hours is the strongest single lever on your public rating.", cta: "Start replying", page: "Reviews" };
+  const weakest = [...derived.locations].sort((a, b) => a.score - b.score)[0];
+  return { title: weakest ? `${weakest.name} is your lowest-rated location at ${weakest.score.toFixed(1)}★` : "Your queue is clear", detail: weakest ? "Every review is answered. Move to root causes and fix what keeps pulling this location down." : "Connect a channel to start collecting customer feedback.", cta: "Find root causes", page: "Improve" };
+}
+
 function Overview({ setPage, reviews, responses, derived }: { setPage: (p: PageKey) => void; reviews: Review[]; responses: ResponseRecord[]; derived: Derived }) {
   const topSource = derived.sources[0];
   const topLocation = derived.locations[0];
   const trendChange = derived.trend.length > 1 ? (derived.trend[derived.trend.length - 1]! - derived.trend[0]!) : 0;
+  const action = nextBestAction(derived);
+  const last30 = reviews.filter((review) => (Date.now() - new Date(review.reviewDate).getTime()) / 86400000 <= 30).length;
   return <><JourneyStrip derived={derived} responses={responses}/><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
     <MetricCard icon={Star} label="Overall rating" value={derived.overallRating.toFixed(2)} note={`${derived.totalReviews} review${derived.totalReviews === 1 ? "" : "s"} counted`} tone="warning"/>
-    <MetricCard icon={Inbox} label="Reviews collected" value={String(derived.totalReviews)} note={`${derived.needsReply} need attention · ${derived.unassigned} unassigned`}/>
+    <MetricCard icon={Inbox} label="Reviews collected" value={String(derived.totalReviews)} note={`${last30} in the last 30 days · ${derived.unassigned} unassigned`}/>
     <MetricCard icon={MessageSquareReply} label="Response rate" value={`${derived.responseRate}%`} note={`${derived.replied} of ${derived.totalReviews} replied`} tone="success"/>
     <MetricCard icon={Clock3} label="Positive sentiment" value={`${derived.positiveShare}%`} note={`${derived.escalated} escalated · ${derived.awaitingApproval} awaiting approval`}/></div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.85fr)]"><section className="card-3d rounded-lg bg-card p-5"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-base font-bold">Reputation pulse</h2><p className="mt-1 text-xs text-muted-foreground">Average rating across all channels</p></div><StatusPill tone={trendChange >= 0 ? "good" : "bad"}>{trendChange >= 0 ? "+" : "−"}{Math.abs(trendChange).toFixed(2)}</StatusPill></div><TrendChart points={derived.trend} labels={derived.periods}/></section>
-      <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><div className="flex items-center gap-2 text-brand-bright"><Sparkles className="size-4"/><span className="text-xs font-bold uppercase tracking-wider">Reputation signal</span></div><h2 className="mt-5 font-display text-xl font-bold">{topLocation ? `${topLocation.name} leads at ${topLocation.score.toFixed(1)}★` : "Waiting for your first review"}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{topSource ? `${topSource.source} brings the most feedback right now, averaging ${topSource.score.toFixed(1)} stars across ${topSource.count} review${topSource.count === 1 ? "" : "s"}.` : "Connect a channel to start collecting customer feedback."}</p><div className="mt-5 flex flex-wrap gap-2">{derived.sources.slice(0,3).map((source) => <StatusPill key={source.source} tone={source.score >= 4 ? "good" : source.score >= 3 ? "warn" : "bad"}>{source.source} · {source.count}</StatusPill>)}</div><Button className="mt-6 w-full bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage("Analytics")}>Explore insight <Activity/></Button></section></div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]"><RecentReviews setPage={setPage} reviews={reviews}/><LocationsSnapshot derived={derived}/></div></>;
+    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.85fr)]"><section className="card-3d rounded-lg bg-card p-5"><div className="flex items-start justify-between gap-4"><div><h2 className="font-display text-base font-bold">Reputation pulse</h2><p className="mt-1 text-xs text-muted-foreground">Blended rating, per-channel movement and monthly review volume</p></div><StatusPill tone={trendChange >= 0 ? "good" : "bad"}>{trendChange >= 0 ? "+" : "−"}{Math.abs(trendChange).toFixed(2)} over {derived.periods.length} months</StatusPill></div><TrendChart points={derived.trend} labels={derived.periods} volume={derived.volume} series={derived.channelSeries}/>
+      <div className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">{derived.channels.map((channel) => <div key={channel.channel} className="rounded-md bg-surface p-3"><p className="truncate text-[11px] font-semibold text-muted-foreground">{channel.channel}</p><p className="mt-1 flex items-baseline gap-2"><span className="font-display text-lg font-bold">{channel.latest.toFixed(2)}</span><span className={cn("text-[11px] font-semibold", channel.change >= 0 ? "text-success" : "text-destructive")}>{channel.change >= 0 ? "+" : "−"}{Math.abs(channel.change).toFixed(2)}</span></p></div>)}</div></section>
+      <section className="card-3d rounded-lg bg-ink p-5 text-ink-foreground"><div className="flex items-center gap-2 text-brand-bright"><Sparkles className="size-4"/><span className="text-xs font-bold uppercase tracking-wider">Reputation signal</span></div>
+        <h2 className="mt-4 font-display text-lg font-bold leading-6">{action.title}</h2><p className="mt-2 text-sm leading-6 text-ink-muted">{action.detail}</p>
+        <div className="mt-4 grid gap-2 rounded-md bg-sidebar-elevated p-3 text-[11px] text-ink-muted">
+          <span className="flex items-center justify-between gap-3"><span>Strongest location</span><strong className="text-ink-foreground">{topLocation ? `${topLocation.name.split(",")[0]} · ${topLocation.score.toFixed(1)}★` : "—"}</strong></span>
+          <span className="flex items-center justify-between gap-3"><span>Busiest channel</span><strong className="text-ink-foreground">{topSource ? `${topSource.source} · ${topSource.count}` : "—"}</strong></span>
+          <span className="flex items-center justify-between gap-3"><span>Open queue</span><strong className="text-ink-foreground">{derived.needsReply + derived.escalated} review{derived.needsReply + derived.escalated === 1 ? "" : "s"}</strong></span>
+        </div>
+        <Button className="mt-4 w-full bg-brand text-brand-foreground shadow-brand hover:bg-brand/90" onClick={() => setPage(action.page)}>{action.cta} <Activity/></Button>
+        <Button variant="ghost" className="mt-2 w-full text-ink-muted hover:bg-sidebar-hover hover:text-ink-foreground" onClick={() => setPage("Analytics")}>See full analysis</Button></section></div>
+    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,1fr)]"><RecentReviews setPage={setPage} reviews={reviews}/><LocationsSnapshot derived={derived}/></div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4"><SentimentPanel derived={derived}/><ChannelMix derived={derived} setPage={setPage}/><PipelinePanel derived={derived} setPage={setPage}/><TeamWorkload derived={derived} setPage={setPage}/></div></>;
+}
+
+function PanelShell({ title, subtitle, children, footer }: { title: string; subtitle: string; children: React.ReactNode; footer?: React.ReactNode }) {
+  return <section className="card-3d flex flex-col rounded-lg bg-card p-4"><h2 className="font-display text-sm font-bold">{title}</h2><p className="mt-1 text-[11px] text-muted-foreground">{subtitle}</p><div className="mt-4 flex-1 space-y-3">{children}</div>{footer && <div className="mt-4">{footer}</div>}</section>;
+}
+
+function SentimentPanel({ derived }: { derived: Derived }) {
+  const tone = (label: string) => label === "Positive" ? "bg-success" : label === "Mixed" ? "bg-warning" : "bg-destructive";
+  return <PanelShell title="Sentiment & ratings" subtitle="How the full review base splits today">
+    <div className="inset-3d flex h-2 overflow-hidden rounded-full bg-muted">{derived.sentimentMix.map((entry) => <span key={entry.sentiment} className={cn("h-full", tone(entry.sentiment))} style={{ width: `${entry.share}%` }}/>)}</div>
+    <div className="grid grid-cols-3 gap-2 text-[11px]">{derived.sentimentMix.map((entry) => <span key={entry.sentiment} className="rounded-md bg-surface p-2"><span className="block text-muted-foreground">{entry.sentiment}</span><strong className="font-display text-sm">{entry.share}%</strong> <span className="text-muted-foreground">· {entry.count}</span></span>)}</div>
+    <div className="space-y-1.5">{derived.ratingBreakdown.map((bucket) => <div key={bucket.stars} className="flex items-center gap-2 text-[11px]"><span className="w-6 shrink-0 text-muted-foreground">{bucket.stars}★</span><span className="inset-3d h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-brand" style={{ width: `${bucket.share}%` }}/></span><span className="w-8 shrink-0 text-right text-muted-foreground">{bucket.count}</span></div>)}</div>
+  </PanelShell>;
+}
+
+function ChannelMix({ derived, setPage }: { derived: Derived; setPage: (p: PageKey) => void }) {
+  const total = derived.sources.reduce((sum, source) => sum + source.count, 0) || 1;
+  return <PanelShell title="Where feedback comes from" subtitle="Volume and rating per channel" footer={<Button variant="outline" size="sm" className="w-full" onClick={() => setPage("Ratings")}>Compare channels</Button>}>
+    {derived.sources.map((source) => <div key={source.source}><div className="flex items-center justify-between text-[11px]"><span className="font-semibold">{source.source}</span><span className="text-muted-foreground">{source.count} · {source.score.toFixed(1)}★</span></div><div className="inset-3d mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-brand" style={{ width: `${Math.round((source.count / total) * 100)}%` }}/></div></div>)}
+    {!derived.sources.length && <p className="text-[11px] text-muted-foreground">No channels connected yet.</p>}
+  </PanelShell>;
+}
+
+function PipelinePanel({ derived, setPage }: { derived: Derived; setPage: (p: PageKey) => void }) {
+  return <PanelShell title="Response pipeline" subtitle="Every draft, by workflow stage" footer={<Button variant="outline" size="sm" className="w-full" onClick={() => setPage("Response Center")}>Open Response Center</Button>}>
+    {derived.pipeline.map((stage) => <div key={stage.stage} className="flex items-center justify-between rounded-md bg-surface px-3 py-2 text-[11px]"><span className="font-semibold">{stage.stage}</span><span className="font-display text-sm font-bold">{stage.count}</span></div>)}
+    <div className="grid grid-cols-2 gap-2 text-[11px]">{derived.priorityMix.filter((entry) => entry.count > 0).map((entry) => <span key={entry.priority} className="rounded-md bg-surface p-2"><span className="block text-muted-foreground">{entry.priority}</span><strong className="font-display text-sm">{entry.open}</strong> <span className="text-muted-foreground">open</span></span>)}</div>
+  </PanelShell>;
+}
+
+function TeamWorkload({ derived, setPage }: { derived: Derived; setPage: (p: PageKey) => void }) {
+  const top = derived.teammates.slice(0, 5);
+  const max = Math.max(1, ...top.map((member) => member.assigned));
+  return <PanelShell title="Team workload" subtitle="Assigned reviews and drafted responses" footer={<Button variant="outline" size="sm" className="w-full" onClick={() => setPage("Team")}>Manage team</Button>}>
+    {top.map((member) => <div key={member.name}><div className="flex items-center justify-between text-[11px]"><span className="truncate font-semibold">{member.name}</span><span className="text-muted-foreground">{member.assigned} assigned · {member.drafted} drafts</span></div><div className="inset-3d mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-brand-bright" style={{ width: `${Math.round((member.assigned / max) * 100)}%` }}/></div></div>)}
+    {!top.length && <p className="text-[11px] text-muted-foreground">No owners assigned yet.</p>}
+  </PanelShell>;
 }
 
 function RecentReviews({ setPage, reviews }: { setPage: (p: PageKey) => void; reviews: Review[] }) {
