@@ -303,30 +303,87 @@ function average(values: number[]) {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
+/** Groups items once by key; Map keeps first-seen order, matching the previous scan order. */
+function groupBy<T>(items: T[], key: (item: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const bucket = map.get(key(item));
+    if (bucket) bucket.push(item);
+    else map.set(key(item), [item]);
+  }
+  return map;
+}
+
 function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapshots: RatingSnapshot[]) {
   const totalReviews = reviews.length;
-  const needsReply = reviews.filter((review) => review.status === "Needs reply").length;
-  const escalated = reviews.filter((review) => review.status === "Escalated").length;
-  const replied = reviews.filter((review) => review.status === "Replied").length;
-  const positive = reviews.filter((review) => review.sentiment === "Positive").length;
-  const unassigned = reviews.filter((review) => !review.assignee).length;
-  const urgent = reviews.filter((review) => review.priority === "Urgent").length;
-  const pendingResponses = responses.filter((response) => response.response_status !== "Published").length;
-  const awaitingApproval = responses.filter((response) => response.response_status === "Pending approval").length;
-  const overallRating = average(reviews.map((review) => review.rating));
+
+  // Single pass over reviews for every count-style metric.
+  const statusCount = new Map<string, number>();
+  const sentimentCount = new Map<string, number>();
+  const priorityCount = new Map<string, number>();
+  const priorityOpen = new Map<string, number>();
+  const starCount = new Map<number, number>();
+  const monthCount = new Map<string, number>();
+  const assignedCount = new Map<string, number>();
+  const byLocation = new Map<string, Review[]>();
+  const bySource = new Map<string, Review[]>();
+  const bump = <K,>(map: Map<K, number>, key: K) => map.set(key, (map.get(key) ?? 0) + 1);
+  const push = (map: Map<string, Review[]>, key: string, review: Review) => {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(review);
+    else map.set(key, [review]);
+  };
+  const monthOf = (value: string) => new Date(value).toLocaleString("en-US", { month: "short" });
+
+  let ratingTotal = 0;
+  let unassigned = 0;
+  for (const review of reviews) {
+    ratingTotal += review.rating;
+    bump(statusCount, review.status);
+    bump(sentimentCount, review.sentiment);
+    bump(priorityCount, review.priority);
+    if (review.status !== "Replied") bump(priorityOpen, review.priority);
+    bump(starCount, Math.round(review.rating));
+    bump(monthCount, monthOf(review.reviewDate));
+    push(byLocation, review.location, review);
+    push(bySource, review.source, review);
+    if (review.assignee) bump(assignedCount, review.assignee);
+    else unassigned += 1;
+  }
+
+  const draftedCount = new Map<string, number>();
+  const publishedCount = new Map<string, number>();
+  const stageCount = new Map<string, number>();
+  for (const response of responses) {
+    bump(draftedCount, response.author_name);
+    if (response.response_status === "Published") bump(publishedCount, response.author_name);
+    bump(stageCount, response.response_status);
+  }
+
+  const needsReply = statusCount.get("Needs reply") ?? 0;
+  const escalated = statusCount.get("Escalated") ?? 0;
+  const replied = statusCount.get("Replied") ?? 0;
+  const positive = sentimentCount.get("Positive") ?? 0;
+  const urgent = priorityCount.get("Urgent") ?? 0;
+  const published = stageCount.get("Published") ?? 0;
+  const pendingResponses = responses.length - published;
+  const awaitingApproval = stageCount.get("Pending approval") ?? 0;
+  const overallRating = totalReviews ? ratingTotal / totalReviews : 0;
   const responseRate = totalReviews ? Math.round((replied / totalReviews) * 100) : 0;
   const positiveShare = totalReviews ? Math.round((positive / totalReviews) * 100) : 0;
 
-  const periods: string[] = [];
-  for (const snapshot of snapshots) if (!periods.includes(snapshot.period_label)) periods.push(snapshot.period_label);
-  const trend = periods.map((period) => average(snapshots.filter((snapshot) => snapshot.period_label === period).map((snapshot) => Number(snapshot.rating))));
+  const byPeriod = groupBy(snapshots, (snapshot) => snapshot.period_label);
+  const periods = [...byPeriod.keys()];
+  const trend = periods.map((period) => average((byPeriod.get(period) ?? []).map((snapshot) => Number(snapshot.rating))));
 
-  const channelNames: string[] = [];
-  for (const snapshot of snapshots) if (!channelNames.includes(snapshot.channel)) channelNames.push(snapshot.channel);
-  const channelSeries = channelNames.map((channel) => ({
-    channel,
-    series: periods.map((period) => average(snapshots.filter((snapshot) => snapshot.channel === channel && snapshot.period_label === period).map((snapshot) => Number(snapshot.rating)))),
-  }));
+  const byChannel = groupBy(snapshots, (snapshot) => snapshot.channel);
+  const channelSeries = [...byChannel.entries()].map(([channel, rows]) => {
+    const scopedByPeriod = groupBy(rows, (snapshot) => snapshot.period_label);
+    return {
+      channel,
+      series: periods.map((period) => average((scopedByPeriod.get(period) ?? []).map((snapshot) => Number(snapshot.rating)))),
+    };
+  });
   const channels = channelSeries.map(({ channel, series }) => {
     const clean = series.filter((value) => value > 0);
     const latest = clean[clean.length - 1] ?? 0;
@@ -334,52 +391,49 @@ function deriveWorkspace(reviews: Review[], responses: ResponseRecord[], snapsho
     return { channel, latest, change: latest - first };
   });
 
-  const locationNames: string[] = [];
-  for (const review of reviews) if (!locationNames.includes(review.location)) locationNames.push(review.location);
-  const locations = locationNames.map((name) => {
-    const scoped = reviews.filter((review) => review.location === name);
-    const score = average(scoped.map((review) => review.rating));
-    return { name, score, reviews: scoped.length, needsReply: scoped.filter((review) => review.status === "Needs reply").length };
-  }).sort((a, b) => b.score - a.score);
+  const locations = [...byLocation.entries()].map(([name, scoped]) => ({
+    name,
+    score: average(scoped.map((review) => review.rating)),
+    reviews: scoped.length,
+    needsReply: scoped.filter((review) => review.status === "Needs reply").length,
+  })).sort((a, b) => b.score - a.score);
 
-  const sourceNames: string[] = [];
-  for (const review of reviews) if (!sourceNames.includes(review.source)) sourceNames.push(review.source);
-  const sources = sourceNames.map((source) => {
-    const scoped = reviews.filter((review) => review.source === source);
-    return { source, count: scoped.length, score: average(scoped.map((review) => review.rating)) };
-  }).sort((a, b) => b.count - a.count);
+  const sources = [...bySource.entries()].map(([source, scoped]) => ({
+    source,
+    count: scoped.length,
+    score: average(scoped.map((review) => review.rating)),
+  })).sort((a, b) => b.count - a.count);
 
   const memberNames: string[] = [];
-  for (const response of responses) if (!memberNames.includes(response.author_name)) memberNames.push(response.author_name);
-  for (const review of reviews) if (review.assignee && !memberNames.includes(review.assignee)) memberNames.push(review.assignee);
+  for (const name of draftedCount.keys()) memberNames.push(name);
+  for (const name of assignedCount.keys()) if (!memberNames.includes(name)) memberNames.push(name);
   const teammates = memberNames.map((name) => ({
     name,
-    drafted: responses.filter((response) => response.author_name === name).length,
-    published: responses.filter((response) => response.author_name === name && response.response_status === "Published").length,
-    assigned: reviews.filter((review) => review.assignee === name).length,
+    drafted: draftedCount.get(name) ?? 0,
+    published: publishedCount.get(name) ?? 0,
+    assigned: assignedCount.get(name) ?? 0,
   })).sort((a, b) => (b.assigned + b.drafted) - (a.assigned + a.drafted));
 
   const sentimentMix = (["Positive", "Mixed", "Negative"] as const).map((sentiment) => {
-    const count = reviews.filter((review) => review.sentiment === sentiment).length;
+    const count = sentimentCount.get(sentiment) ?? 0;
     return { sentiment, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
   });
 
   const priorityMix = (["Urgent", "High", "Normal", "Low"] as const).map((priority) => ({
     priority,
-    count: reviews.filter((review) => review.priority === priority).length,
-    open: reviews.filter((review) => review.priority === priority && review.status !== "Replied").length,
+    count: priorityCount.get(priority) ?? 0,
+    open: priorityOpen.get(priority) ?? 0,
   }));
 
   const pipeline = (["Draft", "Pending approval", "Changes requested", "Approved", "Published"] as const).map((stage) => ({
     stage,
-    count: responses.filter((response) => response.response_status === stage).length,
+    count: stageCount.get(stage) ?? 0,
   }));
 
-  const monthOf = (value: string) => new Date(value).toLocaleString("en-US", { month: "short" });
-  const volume = periods.map((period) => reviews.filter((review) => monthOf(review.reviewDate) === period).length);
+  const volume = periods.map((period) => monthCount.get(period) ?? 0);
 
   const ratingBreakdown = [5, 4, 3, 2, 1].map((stars) => {
-    const count = reviews.filter((review) => Math.round(review.rating) === stars).length;
+    const count = starCount.get(stars) ?? 0;
     return { stars, count, share: totalReviews ? Math.round((count / totalReviews) * 100) : 0 };
   });
 
