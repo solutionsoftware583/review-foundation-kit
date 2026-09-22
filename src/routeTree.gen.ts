@@ -22,6 +22,8 @@ import { Route as AuthenticatedResponseCenterRouteImport } from './routes/_authe
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated/reviews'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedTeamRouteImport } from './routes/_authenticated/team'
+import { Route as AuthenticatedReviewsIndexRouteImport } from './routes/_authenticated/reviews.index'
+import { Route as AuthenticatedReviewsReviewIdRouteImport } from './routes/_authenticated/reviews.$reviewId'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -88,6 +90,18 @@ const AuthenticatedTeamRoute = AuthenticatedTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedReviewsIndexRoute =
+  AuthenticatedReviewsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedReviewsRoute,
+  } as any)
+const AuthenticatedReviewsReviewIdRoute =
+  AuthenticatedReviewsReviewIdRouteImport.update({
+    id: '/$reviewId',
+    path: '/$reviewId',
+    getParentRoute: () => AuthenticatedReviewsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -99,9 +113,11 @@ export interface FileRoutesByFullPath {
   '/ratings': typeof AuthenticatedRatingsRoute
   '/reports': typeof AuthenticatedReportsRoute
   '/response-center': typeof AuthenticatedResponseCenterRoute
-  '/reviews': typeof AuthenticatedReviewsRoute
+  '/reviews': typeof AuthenticatedReviewsRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/team': typeof AuthenticatedTeamRoute
+  '/reviews/$reviewId': typeof AuthenticatedReviewsReviewIdRoute
+  '/reviews/': typeof AuthenticatedReviewsIndexRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -112,10 +128,11 @@ export interface FileRoutesByTo {
   '/ratings': typeof AuthenticatedRatingsRoute
   '/reports': typeof AuthenticatedReportsRoute
   '/response-center': typeof AuthenticatedResponseCenterRoute
-  '/reviews': typeof AuthenticatedReviewsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/team': typeof AuthenticatedTeamRoute
   '/': typeof AuthenticatedIndexRoute
+  '/reviews/$reviewId': typeof AuthenticatedReviewsReviewIdRoute
+  '/reviews': typeof AuthenticatedReviewsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -128,10 +145,12 @@ export interface FileRoutesById {
   '/_authenticated/ratings': typeof AuthenticatedRatingsRoute
   '/_authenticated/reports': typeof AuthenticatedReportsRoute
   '/_authenticated/response-center': typeof AuthenticatedResponseCenterRoute
-  '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
+  '/_authenticated/reviews': typeof AuthenticatedReviewsRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/team': typeof AuthenticatedTeamRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/reviews/$reviewId': typeof AuthenticatedReviewsReviewIdRoute
+  '/_authenticated/reviews/': typeof AuthenticatedReviewsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -148,6 +167,8 @@ export interface FileRouteTypes {
     | '/reviews'
     | '/settings'
     | '/team'
+    | '/reviews/$reviewId'
+    | '/reviews/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -158,10 +179,11 @@ export interface FileRouteTypes {
     | '/ratings'
     | '/reports'
     | '/response-center'
-    | '/reviews'
     | '/settings'
     | '/team'
     | '/'
+    | '/reviews/$reviewId'
+    | '/reviews'
   id:
     | '__root__'
     | '/_authenticated'
@@ -177,6 +199,8 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/team'
     | '/_authenticated/'
+    | '/_authenticated/reviews/$reviewId'
+    | '/_authenticated/reviews/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -277,8 +301,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTeamRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/reviews/': {
+      id: '/_authenticated/reviews/'
+      path: '/'
+      fullPath: '/reviews/'
+      preLoaderRoute: typeof AuthenticatedReviewsIndexRouteImport
+      parentRoute: typeof AuthenticatedReviewsRoute
+    }
+    '/_authenticated/reviews/$reviewId': {
+      id: '/_authenticated/reviews/$reviewId'
+      path: '/$reviewId'
+      fullPath: '/reviews/$reviewId'
+      preLoaderRoute: typeof AuthenticatedReviewsReviewIdRouteImport
+      parentRoute: typeof AuthenticatedReviewsRoute
+    }
   }
 }
+
+interface AuthenticatedReviewsRouteChildren {
+  AuthenticatedReviewsReviewIdRoute: typeof AuthenticatedReviewsReviewIdRoute
+  AuthenticatedReviewsIndexRoute: typeof AuthenticatedReviewsIndexRoute
+}
+
+const AuthenticatedReviewsRouteChildren: AuthenticatedReviewsRouteChildren = {
+  AuthenticatedReviewsReviewIdRoute: AuthenticatedReviewsReviewIdRoute,
+  AuthenticatedReviewsIndexRoute: AuthenticatedReviewsIndexRoute,
+}
+
+const AuthenticatedReviewsRouteWithChildren =
+  AuthenticatedReviewsRoute._addFileChildren(AuthenticatedReviewsRouteChildren)
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAlertsRoute: typeof AuthenticatedAlertsRoute
@@ -288,7 +339,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedRatingsRoute: typeof AuthenticatedRatingsRoute
   AuthenticatedReportsRoute: typeof AuthenticatedReportsRoute
   AuthenticatedResponseCenterRoute: typeof AuthenticatedResponseCenterRoute
-  AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
+  AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRouteWithChildren
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTeamRoute: typeof AuthenticatedTeamRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
@@ -302,7 +353,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedRatingsRoute: AuthenticatedRatingsRoute,
   AuthenticatedReportsRoute: AuthenticatedReportsRoute,
   AuthenticatedResponseCenterRoute: AuthenticatedResponseCenterRoute,
-  AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
+  AuthenticatedReviewsRoute: AuthenticatedReviewsRouteWithChildren,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTeamRoute: AuthenticatedTeamRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
