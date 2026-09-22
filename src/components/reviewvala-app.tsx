@@ -896,6 +896,31 @@ function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: stri
   });
 }
 
+function ResponseVersions({ responseId, refreshKey, onRestore }: { responseId: string; refreshKey: number; onRestore?: (body: string) => void }) {
+  const [versions, setVersions] = useState<{ id: string; version: number; body: string; author_name: string; created_at: string }[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const result = await supabase.from("reviewvala_response_versions").select("id, version, body, author_name, created_at").eq("response_id", responseId).order("version", { ascending: false });
+      if (active && result.data) setVersions(result.data);
+    })();
+    return () => { active = false; };
+  }, [responseId, refreshKey]);
+
+  if (!versions.length) return null;
+  return <div className="mt-4 border-t pt-4">
+    <button onClick={() => setOpen(!open)} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+      <History className="size-3.5 text-brand"/>Draft history · {versions.length} version{versions.length === 1 ? "" : "s"}{open ? " — hide" : " — show"}
+    </button>
+    {open && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded-md border bg-surface p-3 text-xs leading-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground"><strong className="text-foreground">Version {version.version} · {version.author_name}</strong><span className="flex items-center gap-2">{formatMoment(version.created_at)}{onRestore && <Button variant="ghost" size="sm" onClick={() => onRestore(version.body)}><RotateCcw/>Load</Button>}</span></div>
+      <p className="mt-1 line-clamp-3 text-muted-foreground">{version.body}</p>
+    </li>)}</ul>}
+  </div>;
+}
+
 function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
   if (!events.length) return <p className="mt-4 rounded-md border border-dashed bg-surface p-4 text-xs text-muted-foreground">No response activity recorded yet. Every draft, approval and publish will appear here.</p>;
   return <ol className="mt-4 space-y-0">{events.map((event, index) => <li key={event.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
@@ -912,8 +937,10 @@ function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
   </li>)}</ol>;
 }
 
-function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, saveDraft, submitForApproval, updateReview, updateReviews, addNote, createReview }: {
-  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; notes: ReviewNote[]; focusId: string | null; role: Role;
+function ReviewsPage({ reviews, responses, events, notes, templates, complianceRules, policies, targets, focusId, role, can, saveDraft, submitForApproval, updateReview, updateReviews, addNote, createReview }: {
+  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; notes: ReviewNote[];
+  templates: ResponseTemplate[]; complianceRules: ComplianceRule[]; policies: ApprovalPolicy[]; targets: PublishTarget[];
+  focusId: string | null; role: Role;
   can: (permission: Permission) => boolean;
   saveDraft: (reviewId: string, text: string) => Promise<ResponseRecord>;
   submitForApproval: (responseId: string) => Promise<ResponseRecord>;
@@ -970,6 +997,11 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
   const duplicateOf = selected.mergedInto ? reviews.find((review) => review.id === selected.mergedInto) ?? null : null;
   const duplicates = reviews.filter((review) => review.mergedInto === selected.id);
   const permalink = externalPermalink(selected);
+  const limit = targetFor(targets, selected.source)?.character_limit;
+  const issues = checkCompliance(reply, complianceRules, limit);
+  const blocked = hasBlocker(issues);
+  const policy = matchPolicy(policies, selected);
+  const picks = suggestTemplates(templates, selected.rating, selected.source);
   const overdueCount = reviews.filter((review) => !review.archivedAt && !review.mergedInto && !review.firstResponseAt && slaInfo(review).breached).length;
 
   const run = async (action: () => Promise<unknown>, success: string) => {
@@ -1119,15 +1151,22 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
             {currentResponse && <StatusPill tone={statusTone(currentResponse.response_status)}>{currentResponse.response_status}</StatusPill>}
           </div>
           {can("draftResponse") ? <>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <Field label="Start from a template"><Select value="" onChange={(value) => { const template = picks.find((item) => item.name === value); if (!template) return; setReply(fillTemplate(template.body, { firstName: selected.name.split(" ")[0] ?? "there", location: selected.location, platform: selected.source, highlight: "the part you liked" })); setMessage(`“${template.name}” inserted — edit before saving.`); }} options={["", ...picks.map((template) => template.name)]}/></Field>
+              <span className="text-[11px] text-muted-foreground">{picks.length} template{picks.length === 1 ? "" : "s"} fit a {selected.rating}★ {selected.source} review.</span>
+            </div>
             <textarea value={reply} onChange={(event) => { setReply(event.target.value); setMessage(""); }} placeholder={`Hi ${selected.name.split(" ")[0]}, thank you for taking the time to share this with us…`} className="inset-3d mt-4 min-h-40 w-full resize-none rounded-md border bg-background p-4 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"/>
+            {issues.length > 0 && <ul className="mt-3 grid gap-1.5">{issues.map((issue) => <li key={issue.ruleId} className="flex items-start gap-2 text-[11px]"><StatusPill tone={issue.severity === "Blocker" ? "bad" : "warn"}>{issue.severity}</StatusPill><span className="min-w-0"><strong>{issue.name}</strong> — {issue.message}</span></li>)}</ul>}
             <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-              <span className="min-w-0 text-[11px] text-muted-foreground">{message || `${reply.trim().length} characters · warm, concise and brand-safe`}</span>
+              <span className="min-w-0 text-[11px] text-muted-foreground">{message || `${reply.trim().length}${limit ? ` / ${limit}` : ""} characters${currentResponse ? ` · version ${currentResponse.version}` : ""}${policy ? ` · needs ${policy.required_role} approval (${policy.name})` : ""}`}</span>
               <span className="flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm" type="button" onClick={() => { setReply(suggestResponse(selected)); setMessage("Starter wording inserted. Edit before saving."); }}><WandSparkles/>Starter wording</Button>
                 <Button variant="outline" size="sm" onClick={() => void run(() => saveDraft(selected.id, reply.trim()), "Draft saved to Response Center.")} disabled={saving || !reply.trim()}><Send/>{saving ? "Saving…" : "Save draft"}</Button>
-                <Button size="sm" disabled={saving || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
+                <Button size="sm" disabled={saving || blocked || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
               </span>
             </div>
+            {blocked && <p className="mt-2 text-[11px] font-semibold text-destructive">Fix the blockers above before sending this for approval.</p>}
+            {currentResponse && <ResponseVersions responseId={currentResponse.id} refreshKey={currentResponse.version} onRestore={can("draftResponse") ? (body) => { setReply(body); setMessage("Earlier version loaded into the composer."); } : undefined}/>}
           </> : <div className="mt-4"><RoleNotice>{role} access can read responses but cannot draft or submit them.</RoleNotice></div>}
         </div>
 
@@ -1706,7 +1745,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   const content = page === "Overview"
     ? <Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>
     : page === "Reviews"
-      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
+      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
         ? <ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
         : page === "Improve"
