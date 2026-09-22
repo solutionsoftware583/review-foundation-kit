@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      reviewvala_approval_policies: {
+        Row: {
+          auto_publish: boolean
+          created_at: string
+          id: string
+          is_active: boolean
+          match_priority: string | null
+          max_rating: number
+          min_rating: number
+          name: string
+          position: number
+          require_second_approval: boolean
+          required_role: Database["public"]["Enums"]["reviewvala_role"]
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          auto_publish?: boolean
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          match_priority?: string | null
+          max_rating?: number
+          min_rating?: number
+          name: string
+          position?: number
+          require_second_approval?: boolean
+          required_role?: Database["public"]["Enums"]["reviewvala_role"]
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          auto_publish?: boolean
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          match_priority?: string | null
+          max_rating?: number
+          min_rating?: number
+          name?: string
+          position?: number
+          require_second_approval?: boolean
+          required_role?: Database["public"]["Enums"]["reviewvala_role"]
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
       reviewvala_assignment_rules: {
         Row: {
           assignee: string
@@ -141,6 +189,45 @@ export type Database = {
             referencedColumns: ["slug"]
           },
         ]
+      }
+      reviewvala_compliance_rules: {
+        Row: {
+          created_at: string
+          guidance: string
+          id: string
+          is_active: boolean
+          kind: string
+          name: string
+          severity: string
+          updated_at: string
+          value: string
+          workspace_slug: string
+        }
+        Insert: {
+          created_at?: string
+          guidance?: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          name: string
+          severity?: string
+          updated_at?: string
+          value?: string
+          workspace_slug?: string
+        }
+        Update: {
+          created_at?: string
+          guidance?: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          name?: string
+          severity?: string
+          updated_at?: string
+          value?: string
+          workspace_slug?: string
+        }
+        Relationships: []
       }
       reviewvala_insights: {
         Row: {
@@ -293,6 +380,45 @@ export type Database = {
         }
         Relationships: []
       }
+      reviewvala_publish_targets: {
+        Row: {
+          character_limit: number
+          created_at: string
+          id: string
+          is_enabled: boolean
+          max_attempts: number
+          mode: string
+          notes: string
+          platform: string
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          character_limit?: number
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          max_attempts?: number
+          mode?: string
+          notes?: string
+          platform: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          character_limit?: number
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          max_attempts?: number
+          mode?: string
+          notes?: string
+          platform?: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
       reviewvala_rating_snapshots: {
         Row: {
           channel: string
@@ -364,33 +490,149 @@ export type Database = {
           },
         ]
       }
-      reviewvala_responses: {
+      reviewvala_response_templates: {
+        Row: {
+          body: string
+          category: string
+          created_at: string
+          created_by_name: string
+          id: string
+          is_active: boolean
+          max_rating: number
+          min_rating: number
+          name: string
+          platform: string | null
+          tone: string
+          updated_at: string
+          workspace_slug: string
+        }
+        Insert: {
+          body: string
+          category?: string
+          created_at?: string
+          created_by_name?: string
+          id?: string
+          is_active?: boolean
+          max_rating?: number
+          min_rating?: number
+          name: string
+          platform?: string | null
+          tone?: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Update: {
+          body?: string
+          category?: string
+          created_at?: string
+          created_by_name?: string
+          id?: string
+          is_active?: boolean
+          max_rating?: number
+          min_rating?: number
+          name?: string
+          platform?: string | null
+          tone?: string
+          updated_at?: string
+          workspace_slug?: string
+        }
+        Relationships: []
+      }
+      reviewvala_response_versions: {
         Row: {
           author_name: string
+          body: string
           created_at: string
           id: string
-          response_status: string
-          response_text: string
-          review_id: string
-          updated_at: string
+          response_id: string
+          status_at_save: string
+          version: number
         }
         Insert: {
           author_name?: string
+          body: string
           created_at?: string
           id?: string
-          response_status?: string
-          response_text: string
-          review_id: string
-          updated_at?: string
+          response_id: string
+          status_at_save?: string
+          version: number
         }
         Update: {
           author_name?: string
+          body?: string
           created_at?: string
           id?: string
+          response_id?: string
+          status_at_save?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviewvala_response_versions_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: false
+            referencedRelation: "reviewvala_responses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reviewvala_responses: {
+        Row: {
+          approved_at: string | null
+          author_name: string
+          created_at: string
+          external_post_id: string | null
+          id: string
+          idempotency_key: string | null
+          last_publish_error: string | null
+          publish_attempts: number
+          publish_state: string
+          publish_target: string | null
+          published_at: string | null
+          response_status: string
+          response_text: string
+          review_id: string
+          submitted_at: string | null
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          approved_at?: string | null
+          author_name?: string
+          created_at?: string
+          external_post_id?: string | null
+          id?: string
+          idempotency_key?: string | null
+          last_publish_error?: string | null
+          publish_attempts?: number
+          publish_state?: string
+          publish_target?: string | null
+          published_at?: string | null
+          response_status?: string
+          response_text: string
+          review_id: string
+          submitted_at?: string | null
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          approved_at?: string | null
+          author_name?: string
+          created_at?: string
+          external_post_id?: string | null
+          id?: string
+          idempotency_key?: string | null
+          last_publish_error?: string | null
+          publish_attempts?: number
+          publish_state?: string
+          publish_target?: string | null
+          published_at?: string | null
           response_status?: string
           response_text?: string
           review_id?: string
+          submitted_at?: string | null
           updated_at?: string
+          version?: number
         }
         Relationships: [
           {
@@ -649,6 +891,39 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "reviewvala_members"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reviewvala_transition_response: {
+        Args: {
+          _idempotency_key?: string
+          _note?: string
+          _response_id: string
+          _to_status: string
+        }
+        Returns: {
+          approved_at: string | null
+          author_name: string
+          created_at: string
+          external_post_id: string | null
+          id: string
+          idempotency_key: string | null
+          last_publish_error: string | null
+          publish_attempts: number
+          publish_state: string
+          publish_target: string | null
+          published_at: string | null
+          response_status: string
+          response_text: string
+          review_id: string
+          submitted_at: string | null
+          updated_at: string
+          version: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "reviewvala_responses"
           isOneToOne: true
           isSetofReturn: false
         }

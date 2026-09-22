@@ -50,6 +50,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { Overlay } from "@/components/overlay";
 import { formatDate, formatMoment } from "@/lib/format";
 import { externalPermalink, matchAssignee, slaInfo, SLA_HOURS, type AssignmentRule } from "@/lib/review-sla";
+import { ApprovalPoliciesPanel, CompliancePanel, PublishTargetsPanel, TemplateLibraryPanel } from "@/components/response-admin";
+import { checkCompliance, fillTemplate, hasBlocker, matchPolicy, newIdempotencyKey, suggestTemplates, targetFor, type ApprovalPolicy, type ComplianceRule, type PublishTarget, type ResponseTemplate } from "@/lib/response-rules";
 import { AssignmentRulesPanel, AuditLogPanel, BusinessesPanel, InvitesPanel, ProfilePanel, WorkspaceSettingsPanel, logAudit } from "@/components/workspace-admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +136,14 @@ type ResponseRecord = {
   response_status: string;
   author_name: string;
   updated_at: string;
+  version: number;
+  publish_state: string;
+  publish_attempts: number;
+  last_publish_error: string | null;
+  published_at: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  created_at: string;
 };
 
 type ResponseEvent = {
@@ -154,7 +164,7 @@ type RatingSnapshot = { id: string; channel: string; rating: number; period_labe
 // All workspace data is loaded from the connected database; nothing is hardcoded in the UI.
 
 const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at, archived_at, merged_into, source_url, external_id, first_response_at";
-const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at";
+const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at, version, publish_state, publish_attempts, last_publish_error, published_at, submitted_at, approved_at, created_at";
 
 type ReviewRow = {
   id: string; reviewer_initials: string; reviewer_name: string; source: string; location: string; rating: number;
@@ -184,18 +194,26 @@ function useWorkspaceData(role: Role, actorName: string) {
   const [notes, setNotes] = useState<ReviewNote[]>([]);
   const [snapshots, setSnapshots] = useState<RatingSnapshot[]>([]);
   const [rules, setRules] = useState<AssignmentRule[]>([]);
+  const [templates, setTemplates] = useState<ResponseTemplate[]>([]);
+  const [complianceRules, setComplianceRules] = useState<ComplianceRule[]>([]);
+  const [policies, setPolicies] = useState<ApprovalPolicy[]>([]);
+  const [targets, setTargets] = useState<PublishTarget[]>([]);
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const refresh = useCallback(async () => {
     setDataStatus("loading");
     try {
-      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult, ruleResult] = await Promise.all([
+      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult, ruleResult, templateResult, complianceResult, policyResult, targetResult] = await Promise.all([
         supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
         supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
         supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
         supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
         supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
         supabase.from("reviewvala_assignment_rules").select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
+        supabase.from("reviewvala_response_templates").select("id, name, category, tone, body, min_rating, max_rating, platform, is_active, created_by_name").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_compliance_rules").select("id, name, kind, value, severity, guidance, is_active").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_approval_policies").select("id, name, position, min_rating, max_rating, match_priority, required_role, require_second_approval, auto_publish, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
+        supabase.from("reviewvala_publish_targets").select("id, platform, mode, character_limit, max_attempts, is_enabled, notes").eq("workspace_slug", WORKSPACE).order("platform", { ascending: true }),
       ]);
 
       const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
@@ -211,6 +229,10 @@ function useWorkspaceData(role: Role, actorName: string) {
       setNotes(noteResult.data ?? []);
       setSnapshots(snapshotResult.data ?? []);
       setRules((ruleResult.data ?? []) as AssignmentRule[]);
+      setTemplates((templateResult.data ?? []) as ResponseTemplate[]);
+      setComplianceRules((complianceResult.data ?? []) as ComplianceRule[]);
+      setPolicies((policyResult.data ?? []) as ApprovalPolicy[]);
+      setTargets((targetResult.data ?? []) as PublishTarget[]);
       setDataStatus("ready");
     } catch (caught) {
       console.error(caught);
@@ -235,15 +257,22 @@ function useWorkspaceData(role: Role, actorName: string) {
   const saveDraft = useCallback(async (reviewId: string, responseText: string) => {
     const existing = responses.find((response) => response.review_id === reviewId);
     if (existing) {
-      const result = await supabase.from("reviewvala_responses").update({ response_text: responseText, response_status: "Draft" }).eq("id", existing.id).select(RESPONSE_COLUMNS).single();
+      const nextVersion = (existing.version ?? 1) + 1;
+      const result = await supabase.from("reviewvala_responses").update({
+        response_text: responseText, response_status: "Draft", version: nextVersion,
+        publish_state: existing.publish_state === "Failed" ? "Not published" : existing.publish_state,
+        last_publish_error: null,
+      }).eq("id", existing.id).select(RESPONSE_COLUMNS).single();
       if (result.error) throw result.error;
       applyResponse(result.data);
-      await logEvent(existing.id, "Draft saved", existing.response_status, "Draft");
+      await supabase.from("reviewvala_response_versions").insert({ response_id: existing.id, version: nextVersion, body: responseText, author_name: actorName, status_at_save: "Draft" });
+      await logEvent(existing.id, "Draft saved", existing.response_status, "Draft", `Version ${nextVersion} saved`);
       return result.data;
     }
     const result = await supabase.from("reviewvala_responses").insert({ review_id: reviewId, response_text: responseText, response_status: "Draft", author_name: actorName }).select(RESPONSE_COLUMNS).single();
     if (result.error) throw result.error;
     applyResponse(result.data);
+    await supabase.from("reviewvala_response_versions").insert({ response_id: result.data.id, version: 1, body: responseText, author_name: actorName, status_at_save: "Draft" });
     // First draft stops the reply clock for SLA reporting.
     const stamped = await supabase.from("reviewvala_reviews").update({ first_response_at: new Date().toISOString() }).eq("id", reviewId).is("first_response_at", null).select(REVIEW_COLUMNS).maybeSingle();
     if (stamped.data) { const mapped = mapReview(stamped.data); setWorkspaceReviews((current) => current.map((review) => review.id === reviewId ? mapped : review)); }
@@ -251,15 +280,25 @@ function useWorkspaceData(role: Role, actorName: string) {
     return result.data;
   }, [applyResponse, logEvent, responses]);
 
-  const moveResponse = useCallback(async (responseId: string, toStatus: string, action: string, note?: string) => {
+  // Every status change runs through one database routine: it checks the move is
+  // allowed, checks the caller's role, records history and stamps times in a single
+  // transaction. The idempotency key makes a repeated click a no-op.
+  const moveResponse = useCallback(async (responseId: string, toStatus: string, _action: string, note?: string) => {
     const existing = responses.find((response) => response.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
-    const result = await supabase.from("reviewvala_responses").update({ response_status: toStatus }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+    const result = await supabase.rpc("reviewvala_transition_response", {
+      _response_id: responseId, _to_status: toStatus, ...(note ? { _note: note } : {}),
+      _idempotency_key: newIdempotencyKey(responseId, toStatus, existing.version ?? 1),
+    });
     if (result.error) throw result.error;
-    applyResponse(result.data);
-    await logEvent(responseId, action, existing.response_status, toStatus, note);
-    return result.data;
-  }, [applyResponse, logEvent, responses]);
+    const record = result.data as unknown as ResponseRecord;
+    applyResponse(record);
+    const eventResult = await supabase.from("reviewvala_response_events")
+      .select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at")
+      .eq("response_id", responseId).order("created_at", { ascending: true });
+    if (eventResult.data) setEvents((current) => [...current.filter((event) => event.response_id !== responseId), ...eventResult.data]);
+    return record;
+  }, [applyResponse, responses]);
 
   const submitForApproval = useCallback((responseId: string) => moveResponse(responseId, "Pending approval", "Submitted for approval"), [moveResponse]);
   const approveResponse = useCallback((responseId: string) => moveResponse(responseId, "Approved", "Approved"), [moveResponse]);
@@ -270,11 +309,23 @@ function useWorkspaceData(role: Role, actorName: string) {
     const existing = responses.find((item) => item.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
     if (existing.response_status !== "Approved") throw new Error("Only approved responses can be published.");
-    await moveResponse(responseId, "Published", "Published internally");
-    const reviewResult = await supabase.from("reviewvala_reviews").update({ status: "Replied" }).eq("id", existing.review_id).select(REVIEW_COLUMNS).single();
-    if (reviewResult.error) throw reviewResult.error;
-    setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapReview(reviewResult.data) : review));
-  }, [moveResponse, responses]);
+    try {
+      await moveResponse(responseId, "Published", "Published internally");
+    } catch (caught) {
+      // Record the failed attempt so the response can be retried from the queue.
+      const reason = caught instanceof Error ? caught.message : "Publishing failed";
+      const failed = await supabase.from("reviewvala_responses").update({
+        publish_state: "Failed", publish_attempts: (existing.publish_attempts ?? 0) + 1, last_publish_error: reason,
+      }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+      if (failed.data) applyResponse(failed.data);
+      throw caught;
+    }
+    const reviewResult = await supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("id", existing.review_id).single();
+    if (reviewResult.data) {
+      const mapped = mapReview(reviewResult.data);
+      setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapped : review));
+    }
+  }, [applyResponse, moveResponse, responses]);
 
   const updateReview = useCallback(async (reviewId: string, patch: ReviewPatch) => {
     const result = await supabase.from("reviewvala_reviews").update(patch).eq("id", reviewId).select(REVIEW_COLUMNS).single();
@@ -327,7 +378,7 @@ function useWorkspaceData(role: Role, actorName: string) {
     return review;
   }, [rules]);
 
-  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
+  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, templates, complianceRules, policies, targets, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
 }
 
 /* -------------------------------------------------------------- derived --- */
@@ -845,6 +896,31 @@ function applyFilters(reviews: Review[], filters: ReviewFilters, actorName: stri
   });
 }
 
+function ResponseVersions({ responseId, refreshKey, onRestore }: { responseId: string; refreshKey: number; onRestore?: ((body: string) => void) | undefined }) {
+  const [versions, setVersions] = useState<{ id: string; version: number; body: string; author_name: string; created_at: string }[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const result = await supabase.from("reviewvala_response_versions").select("id, version, body, author_name, created_at").eq("response_id", responseId).order("version", { ascending: false });
+      if (active && result.data) setVersions(result.data);
+    })();
+    return () => { active = false; };
+  }, [responseId, refreshKey]);
+
+  if (!versions.length) return null;
+  return <div className="mt-4 border-t pt-4">
+    <button onClick={() => setOpen(!open)} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+      <History className="size-3.5 text-brand"/>Draft history · {versions.length} version{versions.length === 1 ? "" : "s"}{open ? " — hide" : " — show"}
+    </button>
+    {open && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded-md border bg-surface p-3 text-xs leading-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground"><strong className="text-foreground">Version {version.version} · {version.author_name}</strong><span className="flex items-center gap-2">{formatMoment(version.created_at)}{onRestore && <Button variant="ghost" size="sm" onClick={() => onRestore(version.body)}><RotateCcw/>Load</Button>}</span></div>
+      <p className="mt-1 line-clamp-3 text-muted-foreground">{version.body}</p>
+    </li>)}</ul>}
+  </div>;
+}
+
 function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
   if (!events.length) return <p className="mt-4 rounded-md border border-dashed bg-surface p-4 text-xs text-muted-foreground">No response activity recorded yet. Every draft, approval and publish will appear here.</p>;
   return <ol className="mt-4 space-y-0">{events.map((event, index) => <li key={event.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
@@ -861,8 +937,10 @@ function ResponseTimeline({ events }: { events: ResponseEvent[] }) {
   </li>)}</ol>;
 }
 
-function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, saveDraft, submitForApproval, updateReview, updateReviews, addNote, createReview }: {
-  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; notes: ReviewNote[]; focusId: string | null; role: Role;
+function ReviewsPage({ reviews, responses, events, notes, templates, complianceRules, policies, targets, focusId, role, can, saveDraft, submitForApproval, updateReview, updateReviews, addNote, createReview }: {
+  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; notes: ReviewNote[];
+  templates: ResponseTemplate[]; complianceRules: ComplianceRule[]; policies: ApprovalPolicy[]; targets: PublishTarget[];
+  focusId: string | null; role: Role;
   can: (permission: Permission) => boolean;
   saveDraft: (reviewId: string, text: string) => Promise<ResponseRecord>;
   submitForApproval: (responseId: string) => Promise<ResponseRecord>;
@@ -919,6 +997,11 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
   const duplicateOf = selected.mergedInto ? reviews.find((review) => review.id === selected.mergedInto) ?? null : null;
   const duplicates = reviews.filter((review) => review.mergedInto === selected.id);
   const permalink = externalPermalink(selected);
+  const limit = targetFor(targets, selected.source)?.character_limit;
+  const issues = checkCompliance(reply, complianceRules, limit);
+  const blocked = hasBlocker(issues);
+  const policy = matchPolicy(policies, selected);
+  const picks = suggestTemplates(templates, selected.rating, selected.source);
   const overdueCount = reviews.filter((review) => !review.archivedAt && !review.mergedInto && !review.firstResponseAt && slaInfo(review).breached).length;
 
   const run = async (action: () => Promise<unknown>, success: string) => {
@@ -1068,15 +1151,22 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
             {currentResponse && <StatusPill tone={statusTone(currentResponse.response_status)}>{currentResponse.response_status}</StatusPill>}
           </div>
           {can("draftResponse") ? <>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <Field label="Start from a template"><Select value="" onChange={(value) => { const template = picks.find((item) => item.name === value); if (!template) return; setReply(fillTemplate(template.body, { firstName: selected.name.split(" ")[0] ?? "there", location: selected.location, platform: selected.source, highlight: "the part you liked" })); setMessage(`“${template.name}” inserted — edit before saving.`); }} options={["", ...picks.map((template) => template.name)]}/></Field>
+              <span className="text-[11px] text-muted-foreground">{picks.length} template{picks.length === 1 ? "" : "s"} fit a {selected.rating}★ {selected.source} review.</span>
+            </div>
             <textarea value={reply} onChange={(event) => { setReply(event.target.value); setMessage(""); }} placeholder={`Hi ${selected.name.split(" ")[0]}, thank you for taking the time to share this with us…`} className="inset-3d mt-4 min-h-40 w-full resize-none rounded-md border bg-background p-4 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring"/>
+            {issues.length > 0 && <ul className="mt-3 grid gap-1.5">{issues.map((issue) => <li key={issue.ruleId} className="flex items-start gap-2 text-[11px]"><StatusPill tone={issue.severity === "Blocker" ? "bad" : "warn"}>{issue.severity}</StatusPill><span className="min-w-0"><strong>{issue.name}</strong> — {issue.message}</span></li>)}</ul>}
             <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-              <span className="min-w-0 text-[11px] text-muted-foreground">{message || `${reply.trim().length} characters · warm, concise and brand-safe`}</span>
+              <span className="min-w-0 text-[11px] text-muted-foreground">{message || `${reply.trim().length}${limit ? ` / ${limit}` : ""} characters${currentResponse ? ` · version ${currentResponse.version}` : ""}${policy ? ` · needs ${policy.required_role} approval (${policy.name})` : ""}`}</span>
               <span className="flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm" type="button" onClick={() => { setReply(suggestResponse(selected)); setMessage("Starter wording inserted. Edit before saving."); }}><WandSparkles/>Starter wording</Button>
                 <Button variant="outline" size="sm" onClick={() => void run(() => saveDraft(selected.id, reply.trim()), "Draft saved to Response Center.")} disabled={saving || !reply.trim()}><Send/>{saving ? "Saving…" : "Save draft"}</Button>
-                <Button size="sm" disabled={saving || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
+                <Button size="sm" disabled={saving || blocked || !currentResponse || currentResponse.response_status === "Pending approval" || currentResponse.response_status === "Published"} onClick={() => currentResponse && void run(() => submitForApproval(currentResponse.id), "Sent to the approval queue.")}>Submit for approval</Button>
               </span>
             </div>
+            {blocked && <p className="mt-2 text-[11px] font-semibold text-destructive">Fix the blockers above before sending this for approval.</p>}
+            {currentResponse && <ResponseVersions responseId={currentResponse.id} refreshKey={currentResponse.version} onRestore={can("draftResponse") ? (body) => { setReply(body); setMessage("Earlier version loaded into the composer."); } : undefined}/>}
           </> : <div className="mt-4"><RoleNotice>{role} access can read responses but cannot draft or submit them.</RoleNotice></div>}
         </div>
 
@@ -1115,8 +1205,42 @@ function ReviewsPage({ reviews, responses, events, notes, focusId, role, can, sa
 
 /* --------------------------------------------------------- response centre --- */
 
-function ResponseCenter({ reviews, responses, events, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
-  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[]; role: Role; can: (permission: Permission) => boolean;
+function hoursBetween(from?: string | null, to?: string | null) {
+  if (!from || !to) return null;
+  return (new Date(to).getTime() - new Date(from).getTime()) / 3_600_000;
+}
+
+function average(values: (number | null)[]) {
+  const usable = values.filter((value): value is number => value !== null && Number.isFinite(value) && value >= 0);
+  if (!usable.length) return null;
+  return usable.reduce((total, value) => total + value, 0) / usable.length;
+}
+
+function responseMetrics(reviews: Review[], responses: ResponseRecord[], events: ResponseEvent[]) {
+  const byReview = new Map(reviews.map((review) => [review.id, review]));
+  const firstDraft = average(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.created_at)));
+  const approval = average(responses.map((response) => hoursBetween(response.submitted_at, response.approved_at)));
+  const publishing = average(responses.map((response) => hoursBetween(response.approved_at, response.published_at)));
+  const endToEnd = average(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.published_at)));
+  const reworked = new Set(events.filter((event) => event.to_status === "Changes requested" || event.to_status === "Rejected").map((event) => event.response_id));
+  const decided = responses.filter((response) => response.approved_at || reworked.has(response.id));
+  const firstPass = decided.length ? Math.round((decided.filter((response) => !reworked.has(response.id)).length / decided.length) * 100) : null;
+  const published = responses.filter((response) => response.response_status === "Published").length;
+  const failed = responses.filter((response) => response.publish_state === "Failed").length;
+  return { firstDraft, approval, publishing, endToEnd, firstPass, published, failed, total: responses.length };
+}
+
+function formatHours(value: number | null) {
+  if (value === null) return "—";
+  if (value < 1) return `${Math.max(1, Math.round(value * 60))} min`;
+  if (value < 48) return `${value.toFixed(1)} h`;
+  return `${(value / 24).toFixed(1)} days`;
+}
+
+function ResponseCenter({ reviews, responses, events, policies, targets, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
+  reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[];
+  policies: ApprovalPolicy[]; targets: PublishTarget[];
+  role: Role; can: (permission: Permission) => boolean;
   approveResponse: (id: string) => Promise<ResponseRecord>;
   rejectResponse: (id: string, note: string) => Promise<ResponseRecord>;
   requestChanges: (id: string, note: string) => Promise<ResponseRecord>;
@@ -1134,6 +1258,7 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
   const covered = new Set(responses.map((response) => response.review_id));
   const coverage = reviews.length ? Math.round((reviews.filter((review) => covered.has(review.id)).length / reviews.length) * 100) : 0;
   const statusBreakdown = ["Draft", "Pending approval", "Changes requested", "Rejected", "Approved", "Published"].map((label) => ({ label, count: responses.filter((response) => response.response_status === label).length }));
+  const metrics = responseMetrics(reviews, responses, events);
 
   const runAction = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true); setMessage("");
@@ -1164,8 +1289,11 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
               <Button variant="outline" size="sm" disabled={busy} onClick={() => { setNoteFor({ id: response.id, mode: "Rejected" }); setNote(""); }}>Reject</Button>
               <Button size="sm" disabled={busy} onClick={() => void runAction(() => approveResponse(response.id), "Response approved. It is ready to publish internally.")}><Check/>Approve</Button>
             </>}
-            {can("publishResponse") && status === "Approved" && <Button size="sm" disabled={busy} onClick={() => void runAction(() => publishResponse(response.id), "Published internally. The review is marked replied.")}><Send/>Publish internally</Button>}
+            {can("publishResponse") && status === "Approved" && <Button size="sm" disabled={busy} onClick={() => void runAction(() => publishResponse(response.id), "Published internally. The review is marked replied.")}><Send/>{response.publish_state === "Failed" ? `Retry publish (attempt ${(response.publish_attempts ?? 0) + 1})` : "Publish internally"}</Button>}
           </div>
+          {response.publish_state === "Failed" && <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[11px] font-semibold text-destructive">Publishing failed after {response.publish_attempts} attempt{response.publish_attempts === 1 ? "" : "s"}: {response.last_publish_error ?? "unknown reason"}. Nothing was posted — retry when ready.</p>}
+          <p className="mt-3 text-[11px] text-muted-foreground">{(() => { const policy = matchPolicy(policies, review); const target = targetFor(targets, review.source); return `${policy ? `${policy.name} · approved by ${policy.required_role}${policy.require_second_approval ? " · second approval needed" : ""}` : "Manager or Admin approval"}${target ? ` · ${review.source}: ${target.mode.toLowerCase()}, ${target.character_limit} character limit` : ""} · version ${response.version}`; })()}</p>
+          {openHistory === response.id && <ResponseVersions responseId={response.id} refreshKey={response.version}/>}
           {noteFor?.id === response.id && <div className="mt-3 rounded-md border bg-surface p-3"><Field label={noteFor.mode === "Rejected" ? "Why is this rejected?" : "What should change?"}><textarea value={note} onChange={(event) => setNote(event.target.value)} className="inset-3d min-h-20 resize-none rounded-md border bg-background p-2 text-xs font-normal leading-5 outline-none focus:ring-2 focus:ring-ring"/></Field><div className="mt-2 flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setNoteFor(null)}>Cancel</Button><Button size="sm" disabled={busy || !note.trim()} onClick={() => void runAction(async () => { const action = noteFor.mode === "Rejected" ? rejectResponse : requestChanges; await action(response.id, note.trim()); setNoteFor(null); }, noteFor.mode === "Rejected" ? "Response rejected and returned to the author." : "Changes requested from the author.")}>Send decision</Button></div></div>}
           {openHistory === response.id && <div className="mt-4 border-t pt-4"><ResponseTimeline events={history}/></div>}
         </div>;
@@ -1174,6 +1302,17 @@ function ResponseCenter({ reviews, responses, events, role, can, approveResponse
     </section>
 
     <aside className="space-y-4">
+      <section className="card-3d rounded-lg bg-card p-5">
+        <h2 className="font-display font-bold">Response performance</h2>
+        <p className="mt-1 text-[11px] text-muted-foreground">Measured from the workflow records in this workspace.</p>
+        <dl className="mt-4 grid grid-cols-2 gap-3">
+          {([["Time to first draft", formatHours(metrics.firstDraft)], ["Approval turnaround", formatHours(metrics.approval)], ["Approved to published", formatHours(metrics.publishing)], ["Review to published", formatHours(metrics.endToEnd)], ["Approved first time", metrics.firstPass === null ? "—" : `${metrics.firstPass}%`], ["Published", `${metrics.published} / ${metrics.total}`]] as const).map(([label, value]) => <div key={label} className="inset-3d rounded-md bg-surface p-3">
+            <dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt>
+            <dd className="mt-1 font-display text-base font-bold">{value}</dd>
+          </div>)}
+        </dl>
+        {metrics.failed > 0 && <p className="mt-3 text-[11px] font-semibold text-destructive">{metrics.failed} response{metrics.failed === 1 ? "" : "s"} failed to publish and can be retried.</p>}
+      </section>
       <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Response coverage</h2><div className="mt-5 flex items-end gap-3"><span className="font-display text-4xl font-bold">{coverage}%</span><span className="pb-1 text-xs text-muted-foreground">of reviews have a response</span></div><div className="inset-3d mt-4 h-2 rounded-full bg-muted"><div className={cn("h-full rounded-full", coverage >= 80 ? "bg-success" : coverage >= 50 ? "bg-warning" : "bg-destructive")} style={{ width: `${coverage}%` }}/></div><ul className="mt-5 space-y-3 text-xs">{statusBreakdown.map((row) => <li key={row.label} className="flex justify-between"><span className="text-muted-foreground">{row.label}</span><strong>{row.count}</strong></li>)}</ul></section>
       <section className="card-3d rounded-lg bg-card p-5"><h2 className="font-display font-bold">Published internally</h2><p className="mt-1 text-[11px] text-muted-foreground">Published marks the response approved inside ReviewVala. Nothing is sent to an external platform.</p>{published.length ? <div className="mt-3 space-y-2">{published.map((response) => { const review = reviews.find((item) => item.id === response.review_id); return <div key={response.id} className="rounded-md border p-3 text-xs"><div className="flex items-center justify-between gap-2"><strong className="truncate">{review ? review.name : "Review removed"}</strong><StatusPill tone="good">Published</StatusPill></div><p className="mt-2 line-clamp-2 leading-5 text-muted-foreground">{response.response_text}</p></div>; })}</div> : <p className="mt-3 text-xs text-muted-foreground">Nothing published yet. Approve a draft, then publish it internally.</p>}</section>
     </aside>
@@ -1655,15 +1794,15 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   const content = page === "Overview"
     ? <Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>
     : page === "Reviews"
-      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
+      ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
-        ? <ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/>
+        ? <div className="grid gap-5"><ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} policies={data.policies} targets={data.targets} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/><TemplateLibraryPanel role={role}/></div>
         : page === "Improve"
           ? <ImprovePage reviews={visible.reviews} role={role} can={can}/>
           : page === "Team"
             ? <div className="grid gap-5"><MembersPanel role={role} currentUserId={member?.user_id ?? ""} actorName={actorName}/><InvitesPanel role={role}/><AuditLogPanel/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
             : page === "Settings"
-              ? <div className="grid gap-5"><ProfilePanel/><WorkspaceSettingsPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
+              ? <div className="grid gap-5"><ProfilePanel/><WorkspaceSettingsPanel role={role}/><CompliancePanel role={role}/><ApprovalPoliciesPanel role={role}/><PublishTargetsPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
               : page === "Locations"
                 ? <div className="grid gap-5"><BusinessesPanel role={role}/><ModulePage page={page} derived={derived} reviews={visible.reviews} responses={visible.responses} setPage={setPage} role={role}/></div>
                 : page === "Alerts"
