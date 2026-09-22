@@ -188,27 +188,32 @@ function useWorkspaceData(role: Role) {
 
   const refresh = useCallback(async () => {
     setDataStatus("loading");
-    const [reviewResult, responseResult, eventResult, noteResult, snapshotResult] = await Promise.all([
-      supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
-      supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
-      supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
-      supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
-      supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
-    ]);
+    try {
+      const [reviewResult, responseResult, eventResult, noteResult, snapshotResult] = await Promise.all([
+        supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
+        supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
+        supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
+        supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
+        supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
+      ]);
 
-    const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
-    if (firstError) {
-      console.error(firstError);
+      const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
+      if (firstError) {
+        console.error(firstError);
+        setDataStatus("error");
+        return;
+      }
+
+      setWorkspaceReviews((reviewResult.data ?? []).map(mapReview));
+      setResponses(responseResult.data ?? []);
+      setEvents(eventResult.data ?? []);
+      setNotes(noteResult.data ?? []);
+      setSnapshots(snapshotResult.data ?? []);
+      setDataStatus("ready");
+    } catch (caught) {
+      console.error(caught);
       setDataStatus("error");
-      return;
     }
-
-    setWorkspaceReviews((reviewResult.data ?? []).map(mapReview));
-    setResponses(responseResult.data ?? []);
-    setEvents(eventResult.data ?? []);
-    setNotes(noteResult.data ?? []);
-    setSnapshots(snapshotResult.data ?? []);
-    setDataStatus("ready");
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
