@@ -1210,7 +1210,7 @@ function hoursBetween(from?: string | null, to?: string | null) {
   return (new Date(to).getTime() - new Date(from).getTime()) / 3_600_000;
 }
 
-function average(values: (number | null)[]) {
+function averageHours(values: (number | null)[]) {
   const usable = values.filter((value): value is number => value !== null && Number.isFinite(value) && value >= 0);
   if (!usable.length) return null;
   return usable.reduce((total, value) => total + value, 0) / usable.length;
@@ -1218,10 +1218,10 @@ function average(values: (number | null)[]) {
 
 function responseMetrics(reviews: Review[], responses: ResponseRecord[], events: ResponseEvent[]) {
   const byReview = new Map(reviews.map((review) => [review.id, review]));
-  const firstDraft = average(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.created_at)));
-  const approval = average(responses.map((response) => hoursBetween(response.submitted_at, response.approved_at)));
-  const publishing = average(responses.map((response) => hoursBetween(response.approved_at, response.published_at)));
-  const endToEnd = average(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.published_at)));
+  const firstDraft = averageHours(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.created_at)));
+  const approval = averageHours(responses.map((response) => hoursBetween(response.submitted_at, response.approved_at)));
+  const publishing = averageHours(responses.map((response) => hoursBetween(response.approved_at, response.published_at)));
+  const endToEnd = averageHours(responses.map((response) => hoursBetween(byReview.get(response.review_id)?.createdAt, response.published_at)));
   const reworked = new Set(events.filter((event) => event.to_status === "Changes requested" || event.to_status === "Rejected").map((event) => event.response_id));
   const decided = responses.filter((response) => response.approved_at || reworked.has(response.id));
   const firstPass = decided.length ? Math.round((decided.filter((response) => !reworked.has(response.id)).length / decided.length) * 100) : null;
