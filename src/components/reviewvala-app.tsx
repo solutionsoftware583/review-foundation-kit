@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Overlay } from "@/components/overlay";
+import { toast } from "sonner";
 import { formatDate, formatMoment } from "@/lib/format";
 import { externalPermalink, matchAssignee, slaInfo, SLA_HOURS, type AssignmentRule } from "@/lib/review-sla";
 import { ApprovalPoliciesPanel, CompliancePanel, PublishTargetsPanel, TemplateLibraryPanel } from "@/components/response-admin";
@@ -241,6 +242,34 @@ function useWorkspaceData(role: Role, actorName: string) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    const channel = supabase.channel("reviewvala-responses-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reviewvala_responses" }, async (payload) => {
+        const row = payload.new as Partial<ResponseRecord> | null;
+        if (!row?.id) return;
+        const fresh = await supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).eq("id", row.id).maybeSingle();
+        if (!fresh.data) return;
+        const record = fresh.data as ResponseRecord;
+        setResponses((current) => {
+          const before = current.find((item) => item.id === record.id);
+          if (record.response_status === "Published" && before && before.response_status !== "Published") {
+            toast.success("Response published", { description: `${record.author_name}'s reply is now live — the review is marked replied.` });
+            setWorkspaceReviews((reviews) => reviews.map((review) => review.id === record.review_id ? { ...review, status: "Replied" } : review));
+          } else if (before && before.response_status !== record.response_status) {
+            toast(`Response moved to ${record.response_status}`, { description: `By ${record.author_name}` });
+          }
+          return [record, ...current.filter((item) => item.id !== record.id)];
+        });
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "reviewvala_response_events" }, (payload) => {
+        const event = payload.new as ResponseEvent;
+        setEvents((current) => current.some((item) => item.id === event.id) ? current : [...current, event]);
+      })
+      .subscribe((status) => setLive(status === "SUBSCRIBED"));
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
 
   const logEvent = useCallback(async (responseId: string, action: string, fromStatus: string | null, toStatus: string, note?: string) => {
     const result = await supabase.from("reviewvala_response_events").insert({
