@@ -17,5 +17,5 @@
 - [x] Invite links + offboarding (Remove), user profile page, business/location selector, audit log, timezone/locale settings
 
 - [x] Response management — templates, compliance rules, draft version history, approval policies, publish targets/retry, idempotent transitions, performance metrics
-- [ ] Response Center live dashboard + realtime notification on publish
+- [x] Response Center live dashboard + realtime notification on publish
 - [ ] Super Admin: create a new workspace, invite members, test a review (needs multi-workspace switching)
