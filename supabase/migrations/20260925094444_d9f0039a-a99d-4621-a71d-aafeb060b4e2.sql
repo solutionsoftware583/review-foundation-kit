@@ -1,0 +1,2 @@
+ALTER PUBLICATION supabase_realtime ADD TABLE public.reviewvala_responses;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.reviewvala_response_events;
