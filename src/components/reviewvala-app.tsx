@@ -407,7 +407,7 @@ function useWorkspaceData(role: Role, actorName: string) {
     return review;
   }, [rules]);
 
-  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, templates, complianceRules, policies, targets, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
+  return { reviews: workspaceReviews, responses, events, notes, snapshots, rules, templates, complianceRules, policies, targets, live, dataStatus, refresh, updateReviews, saveDraft, submitForApproval, approveResponse, rejectResponse, requestChanges, publishResponse, updateReview, addNote, createReview };
 }
 
 /* -------------------------------------------------------------- derived --- */
@@ -1266,9 +1266,9 @@ function formatHours(value: number | null) {
   return `${(value / 24).toFixed(1)} days`;
 }
 
-function ResponseCenter({ reviews, responses, events, policies, targets, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
+function ResponseCenter({ reviews, responses, events, policies, targets, live, role, can, approveResponse, rejectResponse, requestChanges, publishResponse, submitForApproval }: {
   reviews: Review[]; responses: ResponseRecord[]; events: ResponseEvent[];
-  policies: ApprovalPolicy[]; targets: PublishTarget[];
+  policies: ApprovalPolicy[]; targets: PublishTarget[]; live: boolean;
   role: Role; can: (permission: Permission) => boolean;
   approveResponse: (id: string) => Promise<ResponseRecord>;
   rejectResponse: (id: string, note: string) => Promise<ResponseRecord>;
@@ -1296,7 +1296,25 @@ function ResponseCenter({ reviews, responses, events, policies, targets, role, c
     finally { setBusy(false); }
   };
 
-  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
+  const today = new Date().toDateString();
+  const publishedToday = published.filter((response) => response.published_at && new Date(response.published_at).toDateString() === today).length;
+  const pending = responses.filter((response) => response.response_status === "Pending approval").length;
+  const ready = responses.filter((response) => response.response_status === "Approved").length;
+  const failed = responses.filter((response) => response.publish_state === "Failed").length;
+  const feed = [...events].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 8);
+  const reviewName = (responseId: string) => { const r = responses.find((x) => x.id === responseId); return reviews.find((v) => v.id === r?.review_id)?.name ?? "a review"; };
+
+  return <div className="grid gap-4">
+    <section className="card-3d outline-glass rounded-lg bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-display font-bold">Response dashboard</h2><span className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground"><span className={`size-2 rounded-full ${live ? "animate-pulse bg-success" : "bg-muted-foreground"}`}/>{live ? "Live — updates appear instantly" : "Connecting to live updates…"}</span></div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
+        {([["Awaiting approval", pending], ["Ready to publish", ready], ["Published today", publishedToday], ["Published total", published.length], ["Publish failed", failed], ] as const).map(([label, value]) => <div key={label} className="inset-3d rounded-md bg-surface p-3"><dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt><dd className="mt-1 font-display text-xl font-bold">{value}</dd></div>)}
+      </dl>
+      <h3 className="mt-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Live activity</h3>
+      <ul className="mt-2 divide-y">{feed.map((event) => <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="min-w-0"><b>{event.actor_name}</b> · {event.action} · <span className="text-muted-foreground">reply to {reviewName(event.response_id)}</span></span><span className="flex items-center gap-2"><StatusPill tone={statusTone(event.to_status)}>{event.to_status}</StatusPill><span className="text-muted-foreground">{formatMoment(event.created_at)}</span></span></li>)}
+        {!feed.length && <li className="py-2 text-xs text-muted-foreground">No response activity yet.</li>}</ul>
+    </section>
+  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
     <section className="card-3d rounded-lg bg-card">
       <div className="flex items-center justify-between border-b p-4"><div><h2 className="font-display font-bold">Approval queue</h2><p className="mt-1 text-xs text-muted-foreground">{actionable.length} response{actionable.length === 1 ? "" : "s"} in the internal workflow</p></div><StatusPill tone={actionable.length ? "warn" : "good"}>{actionable.length ? `${actionable.length} open` : "All clear"}</StatusPill></div>
       {message && <p role="status" className="border-b bg-surface px-4 py-3 text-xs font-semibold text-brand">{message}</p>}
@@ -1825,7 +1843,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
     : page === "Reviews"
       ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
-        ? <div className="grid gap-5"><ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} policies={data.policies} targets={data.targets} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/><TemplateLibraryPanel role={role}/></div>
+        ? <div className="grid gap-5"><ResponseCenter reviews={visible.reviews} responses={visible.responses} events={visible.events} policies={data.policies} targets={data.targets} live={data.live} role={role} can={can} approveResponse={data.approveResponse} rejectResponse={data.rejectResponse} requestChanges={data.requestChanges} publishResponse={data.publishResponse} submitForApproval={data.submitForApproval}/><TemplateLibraryPanel role={role}/></div>
         : page === "Improve"
           ? <ImprovePage reviews={visible.reviews} role={role} can={can}/>
           : page === "Team"
