@@ -19,3 +19,5 @@
 - [x] Response management — templates, compliance rules, draft version history, approval policies, publish targets/retry, idempotent transitions, performance metrics
 - [x] Response Center live dashboard + realtime notification on publish
 - [ ] Super Admin: create a new workspace, invite members, test a review (needs multi-workspace switching)
+- [x] Response Center activity feed filters (status, platform, date, location)
+- [ ] Mobile push notifications on draft/submit/approve/publish (needs Firebase connection)
