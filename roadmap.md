@@ -21,3 +21,6 @@
 - [ ] Super Admin: create a new workspace, invite members, test a review (needs multi-workspace switching)
 - [x] Response Center activity feed filters (status, platform, date, location)
 - [ ] Mobile push notifications on draft/submit/approve/publish (needs Firebase connection)
+
+- [ ] Mobile responsiveness: Response dashboard + recent activity feed (truncate long text, mobile-friendly filters)
+- [ ] Live test: publish failure + retry, and second-approval rule (visible in Response Center + activity feed)
