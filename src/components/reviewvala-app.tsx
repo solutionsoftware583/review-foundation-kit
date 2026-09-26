@@ -1301,8 +1301,23 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
   const pending = responses.filter((response) => response.response_status === "Pending approval").length;
   const ready = responses.filter((response) => response.response_status === "Approved").length;
   const failed = responses.filter((response) => response.publish_state === "Failed").length;
-  const feed = [...events].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 8);
-  const reviewName = (responseId: string) => { const r = responses.find((x) => x.id === responseId); return reviews.find((v) => v.id === r?.review_id)?.name ?? "a review"; };
+  const reviewFor = (responseId: string) => { const r = responses.find((x) => x.id === responseId); return reviews.find((v) => v.id === r?.review_id); };
+  const reviewName = (responseId: string) => reviewFor(responseId)?.name ?? "a review";
+  const feedStatuses = Array.from(new Set(events.map((e) => e.to_status))).sort();
+  const feedPlatforms = Array.from(new Set(reviews.map((r) => r.source))).sort();
+  const feedLocations = Array.from(new Set(reviews.map((r) => r.location))).sort();
+  const cutoff = feedRange === "all" ? 0 : Date.now() - Number(feedRange) * 86400000;
+  const feed = [...events]
+    .filter((event) => {
+      const review = reviewFor(event.response_id);
+      if (feedStatus !== "all" && event.to_status !== feedStatus) return false;
+      if (feedPlatform !== "all" && review?.source !== feedPlatform) return false;
+      if (feedLocation !== "all" && review?.location !== feedLocation) return false;
+      if (cutoff && new Date(event.created_at).getTime() < cutoff) return false;
+      return true;
+    })
+    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 25);
+  const filterSelect = (label: string, value: string, set: (v: string) => void, options: [string, string][]) => <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}<select aria-label={label} value={value} onChange={(e) => set(e.target.value)} className="h-8 rounded-md border bg-background px-2 text-xs font-medium normal-case tracking-normal text-foreground">{options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>;
 
   return <div className="grid gap-4">
     <section className="card-3d outline-glass rounded-lg bg-card p-4">
@@ -1311,8 +1326,14 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
         {([["Awaiting approval", pending], ["Ready to publish", ready], ["Published today", publishedToday], ["Published total", published.length], ["Publish failed", failed], ] as const).map(([label, value]) => <div key={label} className="inset-3d rounded-md bg-surface p-3"><dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt><dd className="mt-1 font-display text-xl font-bold">{value}</dd></div>)}
       </dl>
       <h3 className="mt-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Live activity</h3>
-      <ul className="mt-2 divide-y">{feed.map((event) => <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="min-w-0"><b>{event.actor_name}</b> · {event.action} · <span className="text-muted-foreground">reply to {reviewName(event.response_id)}</span></span><span className="flex items-center gap-2"><StatusPill tone={statusTone(event.to_status)}>{event.to_status}</StatusPill><span className="text-muted-foreground">{formatMoment(event.created_at)}</span></span></li>)}
-        {!feed.length && <li className="py-2 text-xs text-muted-foreground">No response activity yet.</li>}</ul>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+        {filterSelect("Status", feedStatus, setFeedStatus, [["all", "All statuses"], ...feedStatuses.map((s) => [s, s] as [string, string])])}
+        {filterSelect("Platform", feedPlatform, setFeedPlatform, [["all", "All platforms"], ...feedPlatforms.map((s) => [s, s] as [string, string])])}
+        {filterSelect("Date", feedRange, setFeedRange, [["all", "Any time"], ["1", "Last 24 hours"], ["7", "Last 7 days"], ["30", "Last 30 days"]])}
+        {filterSelect("Location", feedLocation, setFeedLocation, [["all", "All locations"], ...feedLocations.map((s) => [s, s] as [string, string])])}
+      </div>
+      <ul className="mt-2 max-h-96 divide-y overflow-y-auto">{feed.map((event) => { const review = reviewFor(event.response_id); return <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="min-w-0"><b>{event.actor_name}</b> · {event.action} · {review ? <button type="button" className="font-medium text-primary hover:underline" onClick={() => void navigate({ to: "/reviews/$reviewId", params: { reviewId: review.id } })}>reply to {review.name}</button> : <span className="text-muted-foreground">reply to {reviewName(event.response_id)}</span>}{review && <span className="text-muted-foreground"> · {review.source} · {review.location}</span>}</span><span className="flex items-center gap-2"><StatusPill tone={statusTone(event.to_status)}>{event.to_status}</StatusPill><span className="text-muted-foreground">{formatMoment(event.created_at)}</span></span></li>; })}
+        {!feed.length && <li className="py-2 text-xs text-muted-foreground">No activity matches these filters.</li>}</ul>
     </section>
   <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
     <section className="card-3d rounded-lg bg-card">
