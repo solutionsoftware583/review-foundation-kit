@@ -1277,6 +1277,11 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
   submitForApproval: (id: string) => Promise<ResponseRecord>;
 }) {
   const [message, setMessage] = useState("");
+  const navigate = useNavigate();
+  const [feedStatus, setFeedStatus] = useState("all");
+  const [feedPlatform, setFeedPlatform] = useState("all");
+  const [feedLocation, setFeedLocation] = useState("all");
+  const [feedRange, setFeedRange] = useState("all");
   const [noteFor, setNoteFor] = useState<{ id: string; mode: "Changes requested" | "Rejected" } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
