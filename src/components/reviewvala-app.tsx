@@ -138,6 +138,8 @@ type ResponseRecord = {
   author_name: string;
   updated_at: string;
   version: number;
+  first_approver_user_id: string | null;
+  first_approver_name: string | null;
   publish_state: string;
   publish_attempts: number;
   last_publish_error: string | null;
@@ -165,7 +167,7 @@ type RatingSnapshot = { id: string; channel: string; rating: number; period_labe
 // All workspace data is loaded from the connected database; nothing is hardcoded in the UI.
 
 const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at, archived_at, merged_into, source_url, external_id, first_response_at";
-const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at, version, publish_state, publish_attempts, last_publish_error, published_at, submitted_at, approved_at, created_at";
+const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at, version, publish_state, publish_attempts, last_publish_error, published_at, submitted_at, approved_at, created_at, first_approver_user_id, first_approver_name";
 
 type ReviewRow = {
   id: string; reviewer_initials: string; reviewer_name: string; source: string; location: string; rating: number;
