@@ -582,6 +582,8 @@ export type Database = {
           author_name: string
           created_at: string
           external_post_id: string | null
+          first_approver_name: string | null
+          first_approver_user_id: string | null
           id: string
           idempotency_key: string | null
           last_publish_error: string | null
@@ -601,6 +603,8 @@ export type Database = {
           author_name?: string
           created_at?: string
           external_post_id?: string | null
+          first_approver_name?: string | null
+          first_approver_user_id?: string | null
           id?: string
           idempotency_key?: string | null
           last_publish_error?: string | null
@@ -620,6 +624,8 @@ export type Database = {
           author_name?: string
           created_at?: string
           external_post_id?: string | null
+          first_approver_name?: string | null
+          first_approver_user_id?: string | null
           id?: string
           idempotency_key?: string | null
           last_publish_error?: string | null
@@ -907,6 +913,8 @@ export type Database = {
           author_name: string
           created_at: string
           external_post_id: string | null
+          first_approver_name: string | null
+          first_approver_user_id: string | null
           id: string
           idempotency_key: string | null
           last_publish_error: string | null
