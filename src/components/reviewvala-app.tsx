@@ -138,6 +138,8 @@ type ResponseRecord = {
   author_name: string;
   updated_at: string;
   version: number;
+  first_approver_user_id: string | null;
+  first_approver_name: string | null;
   publish_state: string;
   publish_attempts: number;
   last_publish_error: string | null;
@@ -165,7 +167,7 @@ type RatingSnapshot = { id: string; channel: string; rating: number; period_labe
 // All workspace data is loaded from the connected database; nothing is hardcoded in the UI.
 
 const REVIEW_COLUMNS = "id, reviewer_initials, reviewer_name, source, location, rating, time_label, status, sentiment, review_text, review_date, priority, assignee, created_at, archived_at, merged_into, source_url, external_id, first_response_at";
-const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at, version, publish_state, publish_attempts, last_publish_error, published_at, submitted_at, approved_at, created_at";
+const RESPONSE_COLUMNS = "id, review_id, response_text, response_status, author_name, updated_at, version, publish_state, publish_attempts, last_publish_error, published_at, submitted_at, approved_at, created_at, first_approver_user_id, first_approver_name";
 
 type ReviewRow = {
   id: string; reviewer_initials: string; reviewer_name: string; source: string; location: string; rating: number;
@@ -338,6 +340,21 @@ function useWorkspaceData(role: Role, actorName: string) {
     const existing = responses.find((item) => item.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
     if (existing.response_status !== "Approved") throw new Error("Only approved responses can be published.");
+    // Publish-time platform rule: the response must fit the target's current
+    // character limit. Limits can change after approval, so this is re-checked
+    // here — a violation records a failed attempt that can be retried.
+    const review = workspaceReviews.find((item) => item.id === existing.review_id);
+    const target = review ? targetFor(targets, review.source) : undefined;
+    const length = existing.response_text.trim().length;
+    if (target?.is_enabled && length > target.character_limit) {
+      const reason = `The response is ${length} characters but ${review!.source} allows ${target.character_limit}. Trim it and publish again.`;
+      const failed = await supabase.from("reviewvala_responses").update({
+        publish_state: "Failed", publish_attempts: (existing.publish_attempts ?? 0) + 1, last_publish_error: reason,
+      }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+      if (failed.data) applyResponse(failed.data);
+      await logEvent(responseId, "Publish failed", "Approved", "Approved", reason);
+      throw new Error(reason);
+    }
     try {
       await moveResponse(responseId, "Published", "Published internally");
     } catch (caught) {
@@ -347,14 +364,15 @@ function useWorkspaceData(role: Role, actorName: string) {
         publish_state: "Failed", publish_attempts: (existing.publish_attempts ?? 0) + 1, last_publish_error: reason,
       }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
       if (failed.data) applyResponse(failed.data);
+      await logEvent(responseId, "Publish failed", "Approved", "Approved", reason);
       throw caught;
     }
     const reviewResult = await supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("id", existing.review_id).single();
     if (reviewResult.data) {
       const mapped = mapReview(reviewResult.data);
-      setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapped : review));
+      setWorkspaceReviews((current) => current.map((item) => item.id === existing.review_id ? mapped : item));
     }
-  }, [applyResponse, moveResponse, responses]);
+  }, [applyResponse, logEvent, moveResponse, responses, targets, workspaceReviews]);
 
   const updateReview = useCallback(async (reviewId: string, patch: ReviewPatch) => {
     const result = await supabase.from("reviewvala_reviews").update(patch).eq("id", reviewId).select(REVIEW_COLUMNS).single();
@@ -1296,8 +1314,11 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
 
   const runAction = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true); setMessage("");
-    try { await action(); setMessage(success); }
-    catch (error) { console.error(error); setMessage("That action could not be completed. Nothing changed — please try again."); }
+    try { const spoken = await action(); setMessage(typeof spoken === "string" ? spoken : success); }
+    catch (error) {
+      console.error(error);
+      setMessage(error instanceof Error && error.message && !/failed to fetch|network/i.test(error.message) ? error.message : "That action could not be completed. Nothing changed — please try again.");
+    }
     finally { setBusy(false); }
   };
 
@@ -1322,7 +1343,8 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
       return true;
     })
     .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 25);
-  const filterSelect = (label: string, value: string, set: (v: string) => void, options: [string, string][]) => <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}<select aria-label={label} value={value} onChange={(e) => set(e.target.value)} className="h-8 rounded-md border bg-background px-2 text-xs font-medium normal-case tracking-normal text-foreground">{options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>;
+  const filterSelect = (label: string, value: string, set: (v: string) => void, options: [string, string][]) => <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}<select aria-label={label} value={value} onChange={(e) => set(e.target.value)} className="h-9 w-full min-w-0 truncate rounded-md border bg-background px-2 text-xs font-medium normal-case tracking-normal text-foreground">{options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>;
+  const feedFiltered = feedStatus !== "all" || feedPlatform !== "all" || feedLocation !== "all" || feedRange !== "all";
 
   return <div className="grid gap-4">
     <section className="card-3d outline-glass rounded-lg bg-card p-4">
@@ -1331,13 +1353,14 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
         {([["Awaiting approval", pending], ["Ready to publish", ready], ["Published today", publishedToday], ["Published total", published.length], ["Publish failed", failed], ] as const).map(([label, value]) => <div key={label} className="inset-3d rounded-md bg-surface p-3"><dt className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</dt><dd className="mt-1 font-display text-xl font-bold">{value}</dd></div>)}
       </dl>
       <h3 className="mt-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Live activity</h3>
-      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {filterSelect("Status", feedStatus, setFeedStatus, [["all", "All statuses"], ...feedStatuses.map((s) => [s, s] as [string, string])])}
         {filterSelect("Platform", feedPlatform, setFeedPlatform, [["all", "All platforms"], ...feedPlatforms.map((s) => [s, s] as [string, string])])}
         {filterSelect("Date", feedRange, setFeedRange, [["all", "Any time"], ["1", "Last 24 hours"], ["7", "Last 7 days"], ["30", "Last 30 days"]])}
         {filterSelect("Location", feedLocation, setFeedLocation, [["all", "All locations"], ...feedLocations.map((s) => [s, s] as [string, string])])}
+        {feedFiltered && <button type="button" onClick={() => { setFeedStatus("all"); setFeedPlatform("all"); setFeedLocation("all"); setFeedRange("all"); }} className="col-span-2 justify-self-start rounded-md px-1 py-0.5 text-[11px] font-semibold text-brand underline underline-offset-2 sm:col-span-1">Clear filters</button>}
       </div>
-      <ul className="mt-2 max-h-96 divide-y overflow-y-auto">{feed.map((event) => { const review = reviewFor(event.response_id); return <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="min-w-0"><b>{event.actor_name}</b> · {event.action} · {review ? <button type="button" className="font-medium text-primary hover:underline" onClick={() => void navigate({ to: "/reviews/$reviewId", params: { reviewId: review.id } })}>reply to {review.name}</button> : <span className="text-muted-foreground">reply to {reviewName(event.response_id)}</span>}{review && <span className="text-muted-foreground"> · {review.source} · {review.location}</span>}</span><span className="flex items-center gap-2"><StatusPill tone={statusTone(event.to_status)}>{event.to_status}</StatusPill><span className="text-muted-foreground">{formatMoment(event.created_at)}</span></span></li>; })}
+      <ul className="mt-2 max-h-96 divide-y overflow-y-auto">{feed.map((event) => { const review = reviewFor(event.response_id); return <li key={event.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 py-2.5 text-xs sm:flex sm:flex-wrap sm:items-center sm:justify-between"><span className="min-w-0"><span className="block truncate"><b>{event.actor_name}</b> · {event.action} · {review ? <button type="button" className="font-medium text-primary hover:underline" onClick={() => void navigate({ to: "/reviews/$reviewId", params: { reviewId: review.id } })}>reply to {review.name}</button> : <span className="text-muted-foreground">reply to {reviewName(event.response_id)}</span>}</span>{review && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{review.source} · {review.location}</span>}</span><span className="flex shrink-0 items-center gap-2"><StatusPill tone={statusTone(event.to_status)}>{event.to_status}</StatusPill><span className="whitespace-nowrap text-muted-foreground">{formatMoment(event.created_at)}</span></span></li>; })}
         {!feed.length && <li className="py-2 text-xs text-muted-foreground">No activity matches these filters.</li>}</ul>
     </section>
   <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
@@ -1360,10 +1383,11 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
             {can("approveResponse") && status === "Pending approval" && <>
               <Button variant="outline" size="sm" disabled={busy} onClick={() => { setNoteFor({ id: response.id, mode: "Changes requested" }); setNote(""); }}>Request changes</Button>
               <Button variant="outline" size="sm" disabled={busy} onClick={() => { setNoteFor({ id: response.id, mode: "Rejected" }); setNote(""); }}>Reject</Button>
-              <Button size="sm" disabled={busy} onClick={() => void runAction(() => approveResponse(response.id), "Response approved. It is ready to publish internally.")}><Check/>Approve</Button>
+              <Button size="sm" disabled={busy} onClick={() => void runAction(async () => { const record = await approveResponse(response.id); if (record.response_status === "Pending approval" && record.first_approver_name) return `First approval recorded by ${record.first_approver_name}. A second approval from a different Admin or Manager is required.`; return "Response approved. It is ready to publish internally."; }, "Response approved. It is ready to publish internally.")}><Check/>Approve</Button>
             </>}
             {can("publishResponse") && status === "Approved" && <Button size="sm" disabled={busy} onClick={() => void runAction(() => publishResponse(response.id), "Published internally. The review is marked replied.")}><Send/>{response.publish_state === "Failed" ? `Retry publish (attempt ${(response.publish_attempts ?? 0) + 1})` : "Publish internally"}</Button>}
           </div>
+          {status === "Pending approval" && response.first_approver_name && <p className="mt-3 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning-soft/60 p-3 text-[11px] font-semibold text-warning-strong"><ShieldCheck className="size-3.5 shrink-0"/>First approval by {response.first_approver_name} — one more approval from a different Admin or Manager needed.</p>}
           {response.publish_state === "Failed" && <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[11px] font-semibold text-destructive">Publishing failed after {response.publish_attempts} attempt{response.publish_attempts === 1 ? "" : "s"}: {response.last_publish_error ?? "unknown reason"}. Nothing was posted — retry when ready.</p>}
           <p className="mt-3 text-[11px] text-muted-foreground">{(() => { const policy = matchPolicy(policies, review); const target = targetFor(targets, review.source); return `${policy ? `${policy.name} · approved by ${policy.required_role}${policy.require_second_approval ? " · second approval needed" : ""}` : "Manager or Admin approval"}${target ? ` · ${review.source}: ${target.mode.toLowerCase()}, ${target.character_limit} character limit` : ""} · version ${response.version}`; })()}</p>
           {openHistory === response.id && <ResponseVersions responseId={response.id} refreshKey={response.version}/>}

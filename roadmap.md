@@ -24,3 +24,5 @@
 
 - [ ] Mobile responsiveness: Response dashboard + recent activity feed (truncate long text, mobile-friendly filters)
 - [ ] Live test: publish failure + retry, and second-approval rule (visible in Response Center + activity feed)
+- [ ] Real mobile notifications on reply/publish/approve/draft-save — Firebase connection, test via new workspace + invite
+- [ ] Workspace audit log: review create/update/delete, approval, publish history — visible to Super Admin
