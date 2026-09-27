@@ -340,6 +340,21 @@ function useWorkspaceData(role: Role, actorName: string) {
     const existing = responses.find((item) => item.id === responseId);
     if (!existing) throw new Error("That response no longer exists.");
     if (existing.response_status !== "Approved") throw new Error("Only approved responses can be published.");
+    // Publish-time platform rule: the response must fit the target's current
+    // character limit. Limits can change after approval, so this is re-checked
+    // here — a violation records a failed attempt that can be retried.
+    const review = workspaceReviews.find((item) => item.id === existing.review_id);
+    const target = review ? targetFor(targets, review.source) : undefined;
+    const length = existing.response_text.trim().length;
+    if (target?.is_enabled && length > target.character_limit) {
+      const reason = `The response is ${length} characters but ${review!.source} allows ${target.character_limit}. Trim it and publish again.`;
+      const failed = await supabase.from("reviewvala_responses").update({
+        publish_state: "Failed", publish_attempts: (existing.publish_attempts ?? 0) + 1, last_publish_error: reason,
+      }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
+      if (failed.data) applyResponse(failed.data);
+      await logEvent(responseId, "Publish failed", "Approved", "Approved", reason);
+      throw new Error(reason);
+    }
     try {
       await moveResponse(responseId, "Published", "Published internally");
     } catch (caught) {
@@ -349,14 +364,15 @@ function useWorkspaceData(role: Role, actorName: string) {
         publish_state: "Failed", publish_attempts: (existing.publish_attempts ?? 0) + 1, last_publish_error: reason,
       }).eq("id", responseId).select(RESPONSE_COLUMNS).single();
       if (failed.data) applyResponse(failed.data);
+      await logEvent(responseId, "Publish failed", "Approved", "Approved", reason);
       throw caught;
     }
     const reviewResult = await supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("id", existing.review_id).single();
     if (reviewResult.data) {
       const mapped = mapReview(reviewResult.data);
-      setWorkspaceReviews((current) => current.map((review) => review.id === existing.review_id ? mapped : review));
+      setWorkspaceReviews((current) => current.map((item) => item.id === existing.review_id ? mapped : item));
     }
-  }, [applyResponse, moveResponse, responses]);
+  }, [applyResponse, logEvent, moveResponse, responses, targets, workspaceReviews]);
 
   const updateReview = useCallback(async (reviewId: string, patch: ReviewPatch) => {
     const result = await supabase.from("reviewvala_reviews").update(patch).eq("id", reviewId).select(REVIEW_COLUMNS).single();
