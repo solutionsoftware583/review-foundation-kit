@@ -1315,7 +1315,10 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
   const runAction = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true); setMessage("");
     try { const spoken = await action(); setMessage(typeof spoken === "string" ? spoken : success); }
-    catch (error) { console.error(error); setMessage("That action could not be completed. Nothing changed — please try again."); }
+    catch (error) {
+      console.error(error);
+      setMessage(error instanceof Error && error.message && !/failed to fetch|network/i.test(error.message) ? error.message : "That action could not be completed. Nothing changed — please try again.");
+    }
     finally { setBusy(false); }
   };
 
