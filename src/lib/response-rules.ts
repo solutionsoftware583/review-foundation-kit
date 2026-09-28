@@ -77,7 +77,8 @@ export function hasBlocker(issues: ComplianceIssue[]) {
 export function matchPolicy(policies: ApprovalPolicy[], review: { rating: number; priority: string }) {
   return policies
     .filter((policy) => policy.is_active)
-    .sort((a, b) => a.position - b.position)
+    // Priority-specific policies outrank generic ones, then position decides.
+    .sort((a, b) => Number(!!b.match_priority) - Number(!!a.match_priority) || a.position - b.position)
     .find((policy) =>
       review.rating >= policy.min_rating && review.rating <= policy.max_rating &&
       (!policy.match_priority || policy.match_priority === review.priority)) ?? null;
