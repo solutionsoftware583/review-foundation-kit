@@ -28,3 +28,4 @@
 - [ ] Workspace audit log: review create/update/delete, approval, publish history — visible to Super Admin
 - [ ] Super Admin: create new workspace, invite member, reply + publish a review inside it (needs workspace switching)
 - [ ] Publish-fail + retry + error message end-to-end on Google, Trustpilot and Facebook
+- [x] Auto-assignment: new review auto-assigned by platform/location/rating rules (server-side) + escalations visible
