@@ -26,3 +26,5 @@
 - [x] Live test: publish failure + retry (60-char Google limit → Failed banner + Retry → Published after restore), and second-approval rule (Super Admin first approval recorded + pill; same-approver retry blocked with real error; Riya's second approval → Published; review marked Replied). Fix: priority-specific approval policies now outrank generic ones (RPC + client matcher); RPC errors surface their real message in the UI.
 - [ ] Real mobile notifications on reply/publish/approve/draft-save — Firebase connection, test via new workspace + invite
 - [ ] Workspace audit log: review create/update/delete, approval, publish history — visible to Super Admin
+- [ ] Super Admin: create new workspace, invite member, reply + publish a review inside it (needs workspace switching)
+- [ ] Publish-fail + retry + error message end-to-end on Google, Trustpilot and Facebook
