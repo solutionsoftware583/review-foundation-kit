@@ -60,14 +60,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { analyzeReviewText } from "@/lib/insights.functions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
-import { useSession, type Member, type Permission, type Role, ROLES } from "@/lib/session";
+import { useSession, workspaceSlug, type Member, type Permission, type Role, ROLES } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 type PageKey = "Overview" | "Reviews" | "Response Center" | "Ratings" | "Analytics" | "Improve" | "Alerts" | "Locations" | "Team" | "Reports" | "Settings";
 type PreviewState = "Live data" | "Loading" | "Empty" | "Error";
 type BadgeKey = "needsReply" | "pendingResponses" | "alerts";
 
-const WORKSPACE = "northstar-group";
+
 const TEAM_MEMBERS = ["Riya Sharma", "Arjun Mehta", "Chloe Dubois", "Marcus Hale"];
 const REVIEW_STATUSES = ["Needs reply", "Assigned", "Escalated", "Replied"];
 const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
@@ -207,16 +207,16 @@ function useWorkspaceData(role: Role, actorName: string) {
     setDataStatus("loading");
     try {
       const [reviewResult, responseResult, eventResult, noteResult, snapshotResult, ruleResult, templateResult, complianceResult, policyResult, targetResult] = await Promise.all([
-        supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", WORKSPACE).order("created_at", { ascending: false }),
+        supabase.from("reviewvala_reviews").select(REVIEW_COLUMNS).eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: false }),
         supabase.from("reviewvala_responses").select(RESPONSE_COLUMNS).order("created_at", { ascending: false }),
         supabase.from("reviewvala_response_events").select("id, response_id, action, actor_name, actor_role, from_status, to_status, note, created_at").order("created_at", { ascending: true }),
         supabase.from("reviewvala_review_notes").select("id, review_id, note_text, author_name, created_at").order("created_at", { ascending: false }),
-        supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
-        supabase.from("reviewvala_assignment_rules").select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
-        supabase.from("reviewvala_response_templates").select("id, name, category, tone, body, min_rating, max_rating, platform, is_active, created_by_name").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
-        supabase.from("reviewvala_compliance_rules").select("id, name, kind, value, severity, guidance, is_active").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true }),
-        supabase.from("reviewvala_approval_policies").select("id, name, position, min_rating, max_rating, match_priority, required_role, require_second_approval, auto_publish, is_active").eq("workspace_slug", WORKSPACE).order("position", { ascending: true }),
-        supabase.from("reviewvala_publish_targets").select("id, platform, mode, character_limit, max_attempts, is_enabled, notes").eq("workspace_slug", WORKSPACE).order("platform", { ascending: true }),
+        supabase.from("reviewvala_rating_snapshots").select("id, channel, rating, period_label").eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_assignment_rules").select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active").eq("workspace_slug", workspaceSlug()).order("position", { ascending: true }),
+        supabase.from("reviewvala_response_templates").select("id, name, category, tone, body, min_rating, max_rating, platform, is_active, created_by_name").eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_compliance_rules").select("id, name, kind, value, severity, guidance, is_active").eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true }),
+        supabase.from("reviewvala_approval_policies").select("id, name, position, min_rating, max_rating, match_priority, required_role, require_second_approval, auto_publish, is_active").eq("workspace_slug", workspaceSlug()).order("position", { ascending: true }),
+        supabase.from("reviewvala_publish_targets").select("id, platform, mode, character_limit, max_attempts, is_enabled, notes").eq("workspace_slug", workspaceSlug()).order("platform", { ascending: true }),
       ]);
 
       const firstError = reviewResult.error ?? responseResult.error ?? eventResult.error ?? noteResult.error ?? snapshotResult.error;
@@ -403,7 +403,7 @@ function useWorkspaceData(role: Role, actorName: string) {
     // Assignment rules decide the owner when the form leaves it blank.
     const ruleAssignee = input.assignee || matchAssignee(rules, { source: input.source, location: input.location.trim(), rating: input.rating });
     const result = await supabase.from("reviewvala_reviews").insert({
-      workspace_slug: WORKSPACE,
+      workspace_slug: workspaceSlug(),
       reviewer_initials: initialsOf(input.name),
       reviewer_name: input.name.trim(),
       source: input.source,
@@ -1041,7 +1041,7 @@ function ReviewsPage({ reviews, responses, events, notes, templates, complianceR
   const [mergeMode, setMergeMode] = useState(false);
 
   const loadViews = useCallback(async () => {
-    const result = await supabase.from("reviewvala_saved_views").select("id, name, is_shared, owner_user_id, owner_name, filters").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true });
+    const result = await supabase.from("reviewvala_saved_views").select("id, name, is_shared, owner_user_id, owner_name, filters").eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true });
     if (result.error) { console.error(result.error); return; }
     setViews((result.data ?? []) as SavedView[]);
   }, []);
@@ -1089,7 +1089,7 @@ function ReviewsPage({ reviews, responses, events, notes, templates, complianceR
   const saveView = async () => {
     if (!user || !viewName.trim()) return;
     const result = await supabase.from("reviewvala_saved_views").insert({
-      workspace_slug: WORKSPACE, owner_user_id: user.id, owner_name: actorName,
+      workspace_slug: workspaceSlug(), owner_user_id: user.id, owner_name: actorName,
       name: viewName.trim(), is_shared: shareView, filters,
     });
     if (result.error) { setMessage(result.error.message); return; }
@@ -1678,7 +1678,7 @@ function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role;
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
-      .from("reviewvala_insights").select("*").eq("workspace_slug", WORKSPACE).eq("review_id", review.id)
+      .from("reviewvala_insights").select("*").eq("workspace_slug", workspaceSlug()).eq("review_id", review.id)
       .order("created_at", { ascending: false }).limit(1);
     const row = data?.[0];
     setInsight(row ? mapInsight(row) : null);
@@ -1744,7 +1744,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
     const { data } = await supabase
       .from("reviewvala_insights")
       .select("*")
-      .eq("workspace_slug", WORKSPACE)
+      .eq("workspace_slug", workspaceSlug())
       .order("created_at", { ascending: false })
       .limit(20);
     setInsights(
@@ -1847,7 +1847,7 @@ function MembersPanel({ role, currentUserId, actorName }: { role: Role; currentU
 
   const load = useCallback(async () => {
     setStatus("loading");
-    const result = await supabase.from("reviewvala_members").select("id, user_id, workspace_slug, email, full_name, role, status, created_at").eq("workspace_slug", WORKSPACE).order("created_at", { ascending: true });
+    const result = await supabase.from("reviewvala_members").select("id, user_id, workspace_slug, email, full_name, role, status, created_at").eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true });
     if (result.error) { setStatus("error"); return; }
     setMembers(result.data as Member[]);
     setStatus("ready");

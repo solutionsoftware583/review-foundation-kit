@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Copy, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { LOCALES, TIMEZONES, formatMoment } from "@/lib/format";
-import { ROLES, WORKSPACE_SLUG, useSession, type Business, type Role } from "@/lib/session";
+import { ROLES, workspaceSlug, useSession, type Business, type Role } from "@/lib/session";
 import { SLA_HOURS } from "@/lib/review-sla";
 import { Button } from "@/components/ui/button";
 
@@ -22,7 +22,7 @@ export type AuditEntry = {
 /** Records a workspace action so admins can see who changed what. */
 export async function logAudit(entry: { actorUserId: string; actorName: string; action: string; target?: string; detail?: string }) {
   const result = await supabase.from("reviewvala_audit_log").insert({
-    workspace_slug: WORKSPACE_SLUG,
+    workspace_slug: workspaceSlug(),
     actor_user_id: entry.actorUserId,
     actor_name: entry.actorName,
     action: entry.action,
@@ -121,7 +121,7 @@ export function WorkspaceSettingsPanel({ role }: { role: Role }) {
     setBusy(true); setMessage(""); setError("");
     const result = await supabase.from("reviewvala_workspaces")
       .update({ name, website: website || null, industry: industry || null, timezone, locale })
-      .eq("slug", WORKSPACE_SLUG);
+      .eq("slug", workspaceSlug());
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
     await refreshWorkspace();
@@ -171,7 +171,7 @@ export function InvitesPanel({ role }: { role: Role }) {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const result = await supabase.from("reviewvala_invites").select(INVITE_COLUMNS).eq("workspace_slug", WORKSPACE_SLUG).order("created_at", { ascending: false });
+    const result = await supabase.from("reviewvala_invites").select(INVITE_COLUMNS).eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: false });
     if (result.error) { setError(result.error.message); return; }
     setInvites(result.data as Invite[]);
   }, []);
@@ -189,7 +189,7 @@ export function InvitesPanel({ role }: { role: Role }) {
     setBusy(true); setMessage(""); setError("");
     const code = randomCode();
     const result = await supabase.from("reviewvala_invites").insert({
-      workspace_slug: WORKSPACE_SLUG, code, role: inviteRole, label,
+      workspace_slug: workspaceSlug, code, role: inviteRole, label,
       max_uses: Math.max(1, maxUses), created_by: user.id, created_by_name: actorName,
       expires_at: days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null,
     });
@@ -265,7 +265,7 @@ export function AuditLogPanel() {
   const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
-    const result = await supabase.from("reviewvala_audit_log").select("id, actor_name, action, target, detail, created_at").eq("workspace_slug", WORKSPACE_SLUG).order("created_at", { ascending: false }).limit(200);
+    const result = await supabase.from("reviewvala_audit_log").select("id, actor_name, action, target, detail, created_at").eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: false }).limit(200);
     if (result.error) { setError(result.error.message); return; }
     setError("");
     setEntries(result.data as AuditEntry[]);
@@ -275,8 +275,8 @@ export function AuditLogPanel() {
     void load();
     const refresh = () => void load();
     window.addEventListener("reviewvala-audit", refresh);
-    const channel = supabase.channel(`audit-${WORKSPACE_SLUG}-${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "reviewvala_audit_log", filter: `workspace_slug=eq.${WORKSPACE_SLUG}` }, (payload) => {
+    const channel = supabase.channel(`audit-${workspaceSlug()}-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "reviewvala_audit_log", filter: `workspace_slug=eq.${workspaceSlug()}` }, (payload) => {
         setEntries((current) => [payload.new as AuditEntry, ...current.filter((item) => item.id !== (payload.new as AuditEntry).id)].slice(0, 200));
       })
       .subscribe();
@@ -328,7 +328,7 @@ export function BusinessesPanel({ role }: { role: Role }) {
     if (!user) return;
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_businesses").insert({
-      workspace_slug: WORKSPACE_SLUG, name: name || location, location_label: location,
+      workspace_slug: workspaceSlug, name: name || location, location_label: location,
       city: city || null, category: category || null,
     });
     setBusy(false);
@@ -400,7 +400,7 @@ export function AssignmentRulesPanel({ role }: { role: Role }) {
   const load = useCallback(async () => {
     const result = await supabase.from("reviewvala_assignment_rules")
       .select("id, name, position, match_source, match_location, min_rating, max_rating, assignee, is_active")
-      .eq("workspace_slug", WORKSPACE_SLUG).order("position", { ascending: true });
+      .eq("workspace_slug", workspaceSlug()).order("position", { ascending: true });
     if (result.error) { setError(result.error.message); return; }
     setRules((result.data ?? []) as AssignmentRule[]);
   }, []);
@@ -410,7 +410,7 @@ export function AssignmentRulesPanel({ role }: { role: Role }) {
     if (!user) return;
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_assignment_rules").insert({
-      workspace_slug: WORKSPACE_SLUG, name: name.trim() || `${assignee} rule`,
+      workspace_slug: workspaceSlug, name: name.trim() || `${assignee} rule`,
       position: rules.length,
       ...(source === "Any" ? {} : { match_source: source }),
       ...(location === "Any" ? {} : { match_location: location }),
