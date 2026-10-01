@@ -870,6 +870,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      reviewvala_create_workspace: { Args: { _name: string }; Returns: string }
       reviewvala_is_admin: {
         Args: { _user_id: string; _workspace: string }
         Returns: boolean
