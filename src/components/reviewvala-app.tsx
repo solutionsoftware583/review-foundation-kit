@@ -1418,6 +1418,42 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
   </div>;
 }
 
+function AssignmentOverviewPanel({ reviews, rules, openReview }: { reviews: Review[]; rules: AssignmentRule[]; openReview: (review: Review) => void }) {
+  const open = reviews.filter((review) => !review.archivedAt && !review.mergedInto && review.status !== "Replied");
+  const active = rules.filter((rule) => rule.is_active).sort((a, b) => a.position - b.position);
+  const byRule = active.map((rule) => ({
+    rule,
+    items: open.filter((review) => matchAssignee([rule], review) && review.assignee === rule.assignee),
+  }));
+  const unassigned = open.filter((review) => !review.assignee).length;
+  const escalated = open.filter((review) => review.status === "Escalated").length;
+  const overdue = open.filter((review) => !review.firstResponseAt && slaInfo(review).breached).length;
+  const urgent = open.filter((review) => review.priority === "Urgent").length;
+  const stats: [string, number][] = [["Escalated", escalated], ["Past reply target", overdue], ["Urgent", urgent], ["Unassigned", unassigned]];
+
+  return <section className="card-3d outline-glass rounded-xl bg-card p-5">
+    <h2 className="font-display text-base font-bold">Auto-assignment &amp; escalations</h2>
+    <p className="mt-1 text-xs text-muted-foreground">Open reviews routed by platform, location and rating rules.</p>
+    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {stats.map(([label, value]) => <div key={label} className="rounded-lg border p-3"><p className="truncate text-[11px] text-muted-foreground">{label}</p><p className="font-display text-xl font-bold">{value}</p></div>)}
+    </div>
+    {active.length === 0
+      ? <p className="mt-4 text-sm text-muted-foreground">No active assignment rules yet. Add one under Alerts.</p>
+      : <ul className="mt-4 space-y-2">
+        {byRule.map(({ rule, items }) => <li key={rule.id} className="rounded-lg border p-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+            <span className="min-w-0"><strong className="block truncate text-sm">{rule.name}</strong><span className="block truncate text-xs text-muted-foreground">{rule.match_source === "Any" ? "Any platform" : rule.match_source} · {rule.match_location === "Any" ? "Any location" : rule.match_location} · {rule.min_rating}–{rule.max_rating}★ → {rule.assignee}</span></span>
+            <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-semibold text-brand">{items.length}</span>
+          </div>
+          {items.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">
+            {items.slice(0, 4).map((review) => <button key={review.id} type="button" onClick={() => openReview(review)} className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] hover:bg-muted">{review.name} · {review.source} · {review.rating}★{review.status === "Escalated" ? " · Escalated" : ""}</button>)}
+            {items.length > 4 && <span className="px-1 py-1 text-[11px] text-muted-foreground">+{items.length - 4} more</span>}
+          </div>}
+        </li>)}
+      </ul>}
+  </section>;
+}
+
 function EscalationPanel({ reviews, role, can, updateReviews, openReview }: { reviews: Review[]; role: Role; can: (permission: Permission) => boolean; updateReviews: (ids: string[], patch: ReviewPatch) => Promise<Review[]>; openReview: (review: Review) => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -1891,7 +1927,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   };
 
   const content = page === "Overview"
-    ? <Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>
+    ? <div className="grid gap-5"><Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/><AssignmentOverviewPanel reviews={visible.reviews} rules={data.rules} openReview={openReview}/>{role === "Admin" && <AuditLogPanel/>}</div>
     : page === "Reviews"
       ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
