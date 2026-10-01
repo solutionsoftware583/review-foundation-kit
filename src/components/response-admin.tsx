@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { WORKSPACE_SLUG, type Role } from "@/lib/session";
+import { workspaceSlug, type Role } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import {
   COMPLIANCE_KINDS, PUBLISH_MODES, TEMPLATE_CATEGORIES, TEMPLATE_TONES,
@@ -44,7 +44,7 @@ export function TemplateLibraryPanel({ role }: { role: Role }) {
   const load = useCallback(async () => {
     const result = await supabase.from("reviewvala_response_templates")
       .select("id, name, category, tone, body, min_rating, max_rating, platform, is_active, created_by_name")
-      .eq("workspace_slug", WORKSPACE_SLUG).order("created_at", { ascending: true });
+      .eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true });
     if (result.error) { setError(result.error.message); return; }
     setTemplates((result.data ?? []) as ResponseTemplate[]);
   }, []);
@@ -53,7 +53,7 @@ export function TemplateLibraryPanel({ role }: { role: Role }) {
   const add = async () => {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_response_templates").insert({
-      workspace_slug: WORKSPACE_SLUG, name: name.trim(), category, tone, body: body.trim(),
+      workspace_slug: workspaceSlug, name: name.trim(), category, tone, body: body.trim(),
       min_rating: Number(minRating), max_rating: Number(maxRating),
     });
     setBusy(false);
@@ -121,7 +121,7 @@ export function CompliancePanel({ role }: { role: Role }) {
   const load = useCallback(async () => {
     const result = await supabase.from("reviewvala_compliance_rules")
       .select("id, name, kind, value, severity, guidance, is_active")
-      .eq("workspace_slug", WORKSPACE_SLUG).order("created_at", { ascending: true });
+      .eq("workspace_slug", workspaceSlug()).order("created_at", { ascending: true });
     if (result.error) { setError(result.error.message); return; }
     setRules((result.data ?? []) as ComplianceRule[]);
   }, []);
@@ -130,7 +130,7 @@ export function CompliancePanel({ role }: { role: Role }) {
   const add = async () => {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_compliance_rules").insert({
-      workspace_slug: WORKSPACE_SLUG, name: name.trim(), kind, value: value.trim(), severity, guidance: guidance.trim(),
+      workspace_slug: workspaceSlug, name: name.trim(), kind, value: value.trim(), severity, guidance: guidance.trim(),
     });
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
@@ -197,7 +197,7 @@ export function ApprovalPoliciesPanel({ role }: { role: Role }) {
   const load = useCallback(async () => {
     const result = await supabase.from("reviewvala_approval_policies")
       .select("id, name, position, min_rating, max_rating, match_priority, required_role, require_second_approval, auto_publish, is_active")
-      .eq("workspace_slug", WORKSPACE_SLUG).order("position", { ascending: true });
+      .eq("workspace_slug", workspaceSlug()).order("position", { ascending: true });
     if (result.error) { setError(result.error.message); return; }
     setPolicies((result.data ?? []) as ApprovalPolicy[]);
   }, []);
@@ -206,7 +206,7 @@ export function ApprovalPoliciesPanel({ role }: { role: Role }) {
   const add = async () => {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_approval_policies").insert({
-      workspace_slug: WORKSPACE_SLUG, name: name.trim(), position: policies.length,
+      workspace_slug: workspaceSlug, name: name.trim(), position: policies.length,
       min_rating: Number(minRating), max_rating: Number(maxRating),
       ...(priority === "Any" ? {} : { match_priority: priority }),
       required_role: requiredRole as "Admin" | "Manager",
@@ -264,7 +264,7 @@ export function PublishTargetsPanel({ role }: { role: Role }) {
   const load = useCallback(async () => {
     const result = await supabase.from("reviewvala_publish_targets")
       .select("id, platform, mode, character_limit, max_attempts, is_enabled, notes")
-      .eq("workspace_slug", WORKSPACE_SLUG).order("platform", { ascending: true });
+      .eq("workspace_slug", workspaceSlug()).order("platform", { ascending: true });
     if (result.error) { setError(result.error.message); return; }
     setTargets((result.data ?? []) as PublishTarget[]);
   }, []);
