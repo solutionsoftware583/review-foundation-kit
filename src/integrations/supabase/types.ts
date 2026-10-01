@@ -845,6 +845,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      reviewvala_actor_name: { Args: { _ws: string }; Returns: string }
       reviewvala_can_write: {
         Args: { _user_id: string; _workspace: string }
         Returns: boolean
@@ -869,6 +870,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      reviewvala_create_workspace: { Args: { _name: string }; Returns: string }
       reviewvala_is_admin: {
         Args: { _user_id: string; _workspace: string }
         Returns: boolean

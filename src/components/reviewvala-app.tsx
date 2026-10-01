@@ -675,13 +675,39 @@ function RoleNotice({ children }: { children: React.ReactNode }) {
 /* ------------------------------------------------------------------ chrome --- */
 
 function Sidebar({ page, setPage, open, close, derived, role, actorName, memberEmail, onSignOut }: { page: PageKey; setPage: (p: PageKey) => void; open: boolean; close: () => void; derived: Derived; role: Role; actorName: string; memberEmail: string; onSignOut: () => void }) {
-  const { workspaceName } = useSession();
+  const { workspaceName, workspaces, workspaceSlug: activeSlug, switchWorkspace, createWorkspace } = useSession();
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [busyCreate, setBusyCreate] = useState(false);
   const badges: Record<BadgeKey, number> = { needsReply: derived.needsReply, pendingResponses: derived.pendingResponses, alerts: derived.alerts.length };
+  const submitWorkspace = async () => {
+    setBusyCreate(true); setCreateError("");
+    try { await createWorkspace(newName); setCreating(false); setNewName(""); close(); }
+    catch (error) { setCreateError((error as { message?: string })?.message || "The workspace could not be created."); }
+    finally { setBusyCreate(false); }
+  };
   return <aside aria-label="Main navigation" className={cn("fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar px-3 py-4 transition-transform duration-300 lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
     <div className="flex items-center justify-between px-2 pb-5"><BrandMark/><IconButton label="Close navigation" onClick={close} className="lg:hidden"><X/></IconButton></div>
-    <button onClick={() => { setPage("Locations"); close(); }} className="mx-1 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-elevated p-2.5 text-left shadow-xs transition-colors hover:bg-sidebar-hover">
-      <span className="flex min-w-0 items-center gap-2.5"><span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">N</span><span className="min-w-0"><span className="block truncate text-xs font-semibold text-sidebar-foreground">{workspaceName}</span><span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span></span></span><ChevronDown className="size-3.5 text-sidebar-muted"/>
-    </button>
+    <div className="mx-1 mb-5 rounded-lg border border-sidebar-border bg-sidebar-elevated p-2.5 shadow-xs">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="icon-3d size-8 shrink-0 rounded-md bg-brand-soft font-display text-xs font-bold text-brand">{workspaceName.charAt(0).toUpperCase()}</span>
+        <span className="min-w-0 flex-1">
+          <label className="sr-only" htmlFor="workspace-switcher">Workspace</label>
+          <select id="workspace-switcher" value={activeSlug} onChange={(event) => { if (event.target.value !== activeSlug) switchWorkspace(event.target.value); }} className="block w-full truncate bg-transparent text-xs font-semibold text-sidebar-foreground outline-none">
+            {workspaces.map((item) => <option key={item.slug} value={item.slug} className="text-foreground">{item.name} · {item.role}</option>)}
+          </select>
+          <span className="block truncate text-[10px] text-sidebar-muted">{derived.locations.length} location{derived.locations.length === 1 ? "" : "s"} · {role}</span>
+        </span>
+      </div>
+      {creating
+        ? <div className="mt-2 grid gap-1.5">
+            <input autoFocus aria-label="New workspace name" placeholder="Workspace name" value={newName} onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submitWorkspace(); }} className="h-8 w-full rounded-md border border-sidebar-border bg-sidebar px-2 text-xs text-sidebar-foreground outline-none"/>
+            {createError && <span className="text-[10px] text-destructive">{createError}</span>}
+            <div className="flex gap-1.5"><button type="button" disabled={busyCreate || newName.trim().length < 2} onClick={() => void submitWorkspace()} className="h-7 flex-1 rounded-md bg-brand text-[11px] font-semibold text-brand-foreground disabled:opacity-50">{busyCreate ? "Creating…" : "Create"}</button><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} className="h-7 rounded-md border border-sidebar-border px-2 text-[11px] text-sidebar-muted">Cancel</button></div>
+          </div>
+        : <button type="button" onClick={() => setCreating(true)} className="mt-2 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-sidebar-border text-[11px] text-sidebar-muted hover:bg-sidebar-hover"><Plus className="size-3"/>New workspace</button>}
+    </div>
     <div className="relative min-h-0 flex-1">
       <nav className="sidebar-scroll h-full space-y-3 overflow-y-auto pb-6 pr-1" aria-label="Primary navigation">{navGroups.map((group) => <div key={group.label}><p className="sticky top-0 z-10 mb-1 bg-sidebar/95 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-sidebar-muted backdrop-blur">{group.label}</p><div className="space-y-0.5">{group.items.map((item) => { const Icon = item.icon; const active = page === item.name; const count = item.badge ? badges[item.badge] : 0; return <button key={item.name} onClick={() => { setPage(item.name); close(); }} className={cn("grid w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-[13px] font-medium transition-colors", active ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-xs" : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground")}><Icon className={cn("size-4", active && "text-brand-bright")}/><span className="truncate">{item.name}</span>{count > 0 && <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-brand text-brand-foreground" : "bg-sidebar-hover text-sidebar-muted")}>{count}</span>}</button>})}</div></div>)}</nav>
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-sidebar to-transparent"/>
@@ -1418,6 +1444,42 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
   </div>;
 }
 
+function AssignmentOverviewPanel({ reviews, rules, openReview }: { reviews: Review[]; rules: AssignmentRule[]; openReview: (review: Review) => void }) {
+  const open = reviews.filter((review) => !review.archivedAt && !review.mergedInto && review.status !== "Replied");
+  const active = rules.filter((rule) => rule.is_active).sort((a, b) => a.position - b.position);
+  const byRule = active.map((rule) => ({
+    rule,
+    items: open.filter((review) => matchAssignee([rule], review) && review.assignee === rule.assignee),
+  }));
+  const unassigned = open.filter((review) => !review.assignee).length;
+  const escalated = open.filter((review) => review.status === "Escalated").length;
+  const overdue = open.filter((review) => !review.firstResponseAt && slaInfo(review).breached).length;
+  const urgent = open.filter((review) => review.priority === "Urgent").length;
+  const stats: [string, number][] = [["Escalated", escalated], ["Past reply target", overdue], ["Urgent", urgent], ["Unassigned", unassigned]];
+
+  return <section className="card-3d outline-glass rounded-xl bg-card p-5">
+    <h2 className="font-display text-base font-bold">Auto-assignment &amp; escalations</h2>
+    <p className="mt-1 text-xs text-muted-foreground">Open reviews routed by platform, location and rating rules.</p>
+    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {stats.map(([label, value]) => <div key={label} className="rounded-lg border p-3"><p className="truncate text-[11px] text-muted-foreground">{label}</p><p className="font-display text-xl font-bold">{value}</p></div>)}
+    </div>
+    {active.length === 0
+      ? <p className="mt-4 text-sm text-muted-foreground">No active assignment rules yet. Add one under Alerts.</p>
+      : <ul className="mt-4 space-y-2">
+        {byRule.map(({ rule, items }) => <li key={rule.id} className="rounded-lg border p-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+            <span className="min-w-0"><strong className="block truncate text-sm">{rule.name}</strong><span className="block truncate text-xs text-muted-foreground">{rule.match_source === "Any" ? "Any platform" : rule.match_source} · {rule.match_location === "Any" ? "Any location" : rule.match_location} · {rule.min_rating}–{rule.max_rating}★ → {rule.assignee}</span></span>
+            <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-semibold text-brand">{items.length}</span>
+          </div>
+          {items.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">
+            {items.slice(0, 4).map((review) => <button key={review.id} type="button" onClick={() => openReview(review)} className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] hover:bg-muted">{review.name} · {review.source} · {review.rating}★{review.status === "Escalated" ? " · Escalated" : ""}</button>)}
+            {items.length > 4 && <span className="px-1 py-1 text-[11px] text-muted-foreground">+{items.length - 4} more</span>}
+          </div>}
+        </li>)}
+      </ul>}
+  </section>;
+}
+
 function EscalationPanel({ reviews, role, can, updateReviews, openReview }: { reviews: Review[]; role: Role; can: (permission: Permission) => boolean; updateReviews: (ids: string[], patch: ReviewPatch) => Promise<Review[]>; openReview: (review: Review) => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -1891,7 +1953,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   };
 
   const content = page === "Overview"
-    ? <Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>
+    ? <div className="grid gap-5"><Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/><AssignmentOverviewPanel reviews={visible.reviews} rules={data.rules} openReview={openReview}/>{role === "Admin" && <AuditLogPanel/>}</div>
     : page === "Reviews"
       ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"

@@ -249,13 +249,25 @@ export function InvitesPanel({ role }: { role: Role }) {
 
 /* ------------------------------------------------------------ audit log --- */
 
+const AUDIT_FILTERS = ["All", "Reviews", "Responses", "Access & settings"] as const;
+type AuditFilter = typeof AUDIT_FILTERS[number];
+
+function auditCategory(action: string): AuditFilter {
+  if (action.startsWith("Review")) return "Reviews";
+  if (action.startsWith("Response")) return "Responses";
+  return "Access & settings";
+}
+
 export function AuditLogPanel() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState<AuditFilter>("All");
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
-    const result = await supabase.from("reviewvala_audit_log").select("id, actor_name, action, target, detail, created_at").eq("workspace_slug", WORKSPACE_SLUG).order("created_at", { ascending: false }).limit(60);
+    const result = await supabase.from("reviewvala_audit_log").select("id, actor_name, action, target, detail, created_at").eq("workspace_slug", WORKSPACE_SLUG).order("created_at", { ascending: false }).limit(200);
     if (result.error) { setError(result.error.message); return; }
+    setError("");
     setEntries(result.data as AuditEntry[]);
   }, []);
 
@@ -263,24 +275,40 @@ export function AuditLogPanel() {
     void load();
     const refresh = () => void load();
     window.addEventListener("reviewvala-audit", refresh);
-    return () => window.removeEventListener("reviewvala-audit", refresh);
+    const channel = supabase.channel(`audit-${WORKSPACE_SLUG}-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "reviewvala_audit_log", filter: `workspace_slug=eq.${WORKSPACE_SLUG}` }, (payload) => {
+        setEntries((current) => [payload.new as AuditEntry, ...current.filter((item) => item.id !== (payload.new as AuditEntry).id)].slice(0, 200));
+      })
+      .subscribe();
+    return () => { window.removeEventListener("reviewvala-audit", refresh); void supabase.removeChannel(channel); };
   }, [load]);
+
+  const needle = query.trim().toLowerCase();
+  const shown = entries.filter((entry) =>
+    (filter === "All" || auditCategory(entry.action) === filter) &&
+    (!needle || [entry.action, entry.target, entry.detail, entry.actor_name].join(" ").toLowerCase().includes(needle)));
 
   return <section className={CARD}>
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h2 className="font-display text-base font-bold text-card-foreground">Activity log</h2><p className="text-xs text-muted-foreground">Who changed access, invites and workspace settings.</p></div>
+      <div className="min-w-0"><h2 className="font-display text-base font-bold text-card-foreground">Workspace audit log</h2><p className="text-xs text-muted-foreground">Every review create, update and delete, every approval and publish, plus access changes. Recorded by the database; cannot be edited.</p></div>
       <Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw/>Refresh</Button>
     </div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+      <div className="flex flex-wrap gap-1.5">
+        {AUDIT_FILTERS.map((item) => <Button key={item} size="sm" variant={filter === item ? "default" : "outline"} onClick={() => setFilter(item)}>{item}</Button>)}
+      </div>
+      <input aria-label="Search audit log" placeholder="Search name, reviewer, action…" value={query} onChange={(event) => setQuery(event.target.value)} className={INPUT}/>
+    </div>
     <Notice message={error} tone="bad"/>
-    <ol className="mt-4 space-y-2">
-      {entries.map((entry) => <li key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border p-3">
+    <ol className="mt-4 max-h-[32rem] space-y-2 overflow-y-auto">
+      {shown.map((entry) => <li key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border p-3">
         <span className="icon-3d size-8 shrink-0 rounded-full bg-brand-soft text-brand"><ShieldCheck className="size-4"/></span>
         <span className="min-w-0">
           <strong className="block truncate text-sm text-card-foreground">{entry.action}{entry.target && ` · ${entry.target}`}</strong>
-          <span className="block truncate text-xs text-muted-foreground">{entry.actor_name || "Member"} · {formatMoment(entry.created_at)}{entry.detail && ` · ${entry.detail}`}</span>
+          <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{entry.actor_name || "Member"} · {formatMoment(entry.created_at)}{entry.detail && ` · ${entry.detail}`}</span>
         </span>
       </li>)}
-      {!entries.length && <li className="rounded-lg border p-4 text-center text-xs text-muted-foreground">No activity recorded yet.</li>}
+      {!shown.length && <li className="rounded-lg border p-4 text-center text-xs text-muted-foreground">No matching activity.</li>}
     </ol>
   </section>;
 }

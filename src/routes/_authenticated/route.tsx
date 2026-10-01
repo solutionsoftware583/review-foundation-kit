@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { SessionProvider } from "@/lib/session";
+import { SessionProvider, WorkspaceBoundary } from "@/lib/session";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -15,7 +15,9 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthenticatedLayout() {
   return (
     <SessionProvider>
-      <Outlet />
+      <WorkspaceBoundary>
+        <Outlet />
+      </WorkspaceBoundary>
     </SessionProvider>
   );
 }
