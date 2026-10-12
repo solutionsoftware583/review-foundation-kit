@@ -25,8 +25,8 @@
 - [x] Mobile responsiveness: Response dashboard + recent activity feed (truncate long text, mobile-friendly filters) — verified at 390×844, no horizontal overflow
 - [x] Live test: publish failure + retry (60-char Google limit → Failed banner + Retry → Published after restore), and second-approval rule (Super Admin first approval recorded + pill; same-approver retry blocked with real error; Riya's second approval → Published; review marked Replied). Fix: priority-specific approval policies now outrank generic ones (RPC + client matcher); RPC errors surface their real message in the UI.
 - [ ] Real mobile notifications on reply/publish/approve/draft-save — Firebase connection, test via new workspace + invite
-- [ ] Workspace audit log: review create/update/delete, approval, publish history — visible to Super Admin
+- [x] Workspace audit log: review create/update/delete, approval, publish history — visible to Super Admin
 - [ ] Super Admin: create new workspace, invite member, reply + publish a review inside it (needs workspace switching)
 - [ ] Publish-fail + retry + error message end-to-end on Google, Trustpilot and Facebook
 - [x] Auto-assignment: new review auto-assigned by platform/location/rating rules (server-side) + escalations visible
-- [ ] Dashboard panel: auto-assigned reviews by rule (platform/location/rating) + escalation counts
+- [x] Dashboard panel: auto-assigned reviews by rule (platform/location/rating) + escalation counts
