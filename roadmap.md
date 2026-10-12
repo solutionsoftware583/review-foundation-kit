@@ -30,3 +30,4 @@
 - [ ] Publish-fail + retry + error message end-to-end on Google, Trustpilot and Facebook
 - [x] Auto-assignment: new review auto-assigned by platform/location/rating rules (server-side) + escalations visible
 - [x] Dashboard panel: auto-assigned reviews by rule (platform/location/rating) + escalation counts
+- [ ] AI analysis works in every workspace + suggested reply
