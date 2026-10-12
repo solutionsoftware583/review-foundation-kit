@@ -189,7 +189,7 @@ export function InvitesPanel({ role }: { role: Role }) {
     setBusy(true); setMessage(""); setError("");
     const code = randomCode();
     const result = await supabase.from("reviewvala_invites").insert({
-      workspace_slug: workspaceSlug, code, role: inviteRole, label,
+      workspace_slug: workspaceSlug(), code, role: inviteRole, label,
       max_uses: Math.max(1, maxUses), created_by: user.id, created_by_name: actorName,
       expires_at: days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null,
     });
@@ -328,7 +328,7 @@ export function BusinessesPanel({ role }: { role: Role }) {
     if (!user) return;
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_businesses").insert({
-      workspace_slug: workspaceSlug, name: name || location, location_label: location,
+      workspace_slug: workspaceSlug(), name: name || location, location_label: location,
       city: city || null, category: category || null,
     });
     setBusy(false);
@@ -410,7 +410,7 @@ export function AssignmentRulesPanel({ role }: { role: Role }) {
     if (!user) return;
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_assignment_rules").insert({
-      workspace_slug: workspaceSlug, name: name.trim() || `${assignee} rule`,
+      workspace_slug: workspaceSlug(), name: name.trim() || `${assignee} rule`,
       position: rules.length,
       ...(source === "Any" ? {} : { match_source: source }),
       ...(location === "Any" ? {} : { match_location: location }),
