@@ -53,7 +53,7 @@ export function TemplateLibraryPanel({ role }: { role: Role }) {
   const add = async () => {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_response_templates").insert({
-      workspace_slug: workspaceSlug, name: name.trim(), category, tone, body: body.trim(),
+      workspace_slug: workspaceSlug(), name: name.trim(), category, tone, body: body.trim(),
       min_rating: Number(minRating), max_rating: Number(maxRating),
     });
     setBusy(false);
@@ -130,7 +130,7 @@ export function CompliancePanel({ role }: { role: Role }) {
   const add = async () => {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_compliance_rules").insert({
-      workspace_slug: workspaceSlug, name: name.trim(), kind, value: value.trim(), severity, guidance: guidance.trim(),
+      workspace_slug: workspaceSlug(), name: name.trim(), kind, value: value.trim(), severity, guidance: guidance.trim(),
     });
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
@@ -206,7 +206,7 @@ export function ApprovalPoliciesPanel({ role }: { role: Role }) {
   const add = async () => {
     setBusy(true); setError("");
     const result = await supabase.from("reviewvala_approval_policies").insert({
-      workspace_slug: workspaceSlug, name: name.trim(), position: policies.length,
+      workspace_slug: workspaceSlug(), name: name.trim(), position: policies.length,
       min_rating: Number(minRating), max_rating: Number(maxRating),
       ...(priority === "Any" ? {} : { match_priority: priority }),
       required_role: requiredRole as "Admin" | "Manager",
