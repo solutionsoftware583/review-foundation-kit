@@ -1986,7 +1986,7 @@ export function ReviewValaApp({ page, focusId = null }: { page: PageKey; focusId
   };
 
   const content = page === "Overview"
-    ? <div className="grid gap-5"><Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/><AssignmentOverviewPanel reviews={visible.reviews} rules={data.rules} openReview={openReview}/>{role === "Admin" && <AuditLogPanel/>}</div>
+    ? <div className="grid gap-5"><Overview setPage={setPage} reviews={visible.reviews} responses={visible.responses} derived={derived}/>{role === "Admin" && <CustomerReviewIntakePanel reviews={visible.reviews} createReview={data.createReview} openReview={openReview}/>}<AssignmentOverviewPanel reviews={visible.reviews} rules={data.rules} openReview={openReview}/>{role === "Admin" && <AuditLogPanel/>}</div>
     : page === "Reviews"
       ? <ReviewsPage reviews={visible.reviews} responses={visible.responses} events={visible.events} notes={visible.notes} templates={data.templates} complianceRules={data.complianceRules} policies={data.policies} targets={data.targets} focusId={focusId} role={role} can={can} saveDraft={data.saveDraft} submitForApproval={data.submitForApproval} updateReview={data.updateReview} updateReviews={data.updateReviews} addNote={data.addNote} createReview={data.createReview}/>
       : page === "Response Center"
