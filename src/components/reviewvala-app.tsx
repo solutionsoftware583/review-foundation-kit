@@ -887,7 +887,7 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function ReviewForm({ close, createReview }: { close: () => void; createReview: (input: CreateReviewInput) => Promise<Review> }) {
+function ReviewForm({ close, createReview, requireProof = false }: { close: () => void; createReview: (input: CreateReviewInput) => Promise<Review>; requireProof?: boolean }) {
   const { workspaceName } = useSession();
   const [form, setForm] = useState<CreateReviewInput>({ name: "", source: "Google", location: "", rating: 5, text: "", reviewDate: todayISO(), sentiment: "Positive", priority: "Normal", assignee: "", sourceUrl: "", externalId: "" });
   const [saving, setSaving] = useState(false);
@@ -899,6 +899,12 @@ function ReviewForm({ close, createReview }: { close: () => void; createReview: 
     if (!form.location.trim()) { setError("Choose the location this review is about."); return; }
     if (form.text.trim().length < 10) { setError("Add the review text — at least 10 characters."); return; }
     if (form.reviewDate > todayISO()) { setError("The review date cannot be in the future."); return; }
+    if (requireProof) {
+      if (!/^https:\/\/\S+\.\S+/.test(form.sourceUrl.trim())) { setError("Paste the link to the original review on the platform (starting with https://)."); return; }
+      if (form.externalId.trim().length < 3) { setError("Add the platform's review id so the same review cannot be added twice."); return; }
+      const dup = await supabase.from("reviewvala_reviews").select("id").eq("workspace_slug", workspaceSlug()).or(`external_id.eq.${form.externalId.trim().replace(/[,()]/g, "")},source_url.eq.${form.sourceUrl.trim().replace(/[,()]/g, "")}`).limit(1);
+      if (dup.data?.length) { setError("This review is already in the workspace — same link or review id."); return; }
+    }
     setSaving(true); setError("");
     try { await createReview(form); close(); } catch (caught) { console.error(caught); setError("Could not save this review. Nothing was created — please try again."); } finally { setSaving(false); }
   };
@@ -1442,6 +1448,33 @@ function ResponseCenter({ reviews, responses, events, policies, targets, live, r
     </aside>
   </div>
   </div>;
+}
+
+function CustomerReviewIntakePanel({ reviews, createReview, openReview }: { reviews: Review[]; createReview: (input: CreateReviewInput) => Promise<Review>; openReview: (review: Review) => void }) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const verified = reviews.filter((review) => review.sourceUrl && review.externalId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
+  return <section className="card-3d outline-glass rounded-xl bg-card p-5">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+      <div className="min-w-0">
+        <h2 className="font-display text-base font-bold">Add real customer reviews</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Copy a review from Google, Trustpilot, Facebook or Tripadvisor. The original link and platform review id are required, and duplicates are refused. Assignment rules route it automatically.</p>
+      </div>
+      <Button size="sm" onClick={() => { setMessage(""); setOpen(true); }}><Plus/>Add customer review</Button>
+    </div>
+    {message && <p className="mt-3 text-xs font-semibold text-success">{message}</p>}
+    <ul className="mt-4 space-y-2">
+      {verified.map((review) => <li key={review.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border p-3">
+        <button type="button" onClick={() => openReview(review)} className="min-w-0 text-left">
+          <strong className="block truncate text-sm">{review.name} · {review.rating}★</strong>
+          <span className="block truncate text-xs text-muted-foreground">{review.source} · {review.location} · {review.assignee ? `assigned to ${review.assignee}` : "unassigned"} · added {formatMoment(review.createdAt)}</span>
+        </button>
+        <a href={review.sourceUrl ?? "#"} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand hover:underline">Original</a>
+      </li>)}
+      {!verified.length && <li className="rounded-lg border p-4 text-center text-xs text-muted-foreground">No customer reviews with a verified source link yet.</li>}
+    </ul>
+    {open && <ReviewForm requireProof close={() => setOpen(false)} createReview={async (input) => { const created = await createReview(input); setMessage(`${created.name}'s review was added${created.assignee ? ` and assigned to ${created.assignee}` : ""}.`); return created; }}/>}
+  </section>;
 }
 
 function AssignmentOverviewPanel({ reviews, rules, openReview }: { reviews: Review[]; rules: AssignmentRule[]; openReview: (review: Review) => void }) {
