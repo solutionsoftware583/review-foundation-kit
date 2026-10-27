@@ -6,11 +6,11 @@
 - [ ] BLOCKED — "Increase Reviews" auto-posting module (Google account creation/login storage, AI-generated 4/5★ reviews with quantity auto-stop). Declined: platform fraud + Google TOS violation. Awaiting user go-ahead on the legal alternative (genuine-customer review request campaigns with quota auto-stop and tracking).
 - [x] Real URL routes for every module (/reviews, /response-center, /ratings, /analytics, /improve, /alerts, /locations, /team, /reports, /settings) + shareable review deep link /reviews?review=<id>; per-route head metadata; verified deep links, browser back/forward, no console errors, no overflow desktop/mobile.
 - [x] Sign-in (email/password) + server-enforced roles via workspace membership + RLS
-- [ ] Multi-business/workspace switching (workspace is currently fixed to northstar-group).
+- [x] Workspace switching
 
 - [x] Verify /reviews, /analytics, /response-center navigation: KPIs, review queue, activity history
 - [x] Real workspace + business + user tables (workspaces + businesses tables, name/locations read live)
-- [ ] Multi-workspace switching (create a second workspace and switch between them)
+- [x] Multi-workspace switching
 - [x] AI analysis: actor derived from authenticated member (client author input removed)
 - [x] AI analysis: validate supplied review ID belongs to the caller workspace
 
@@ -18,7 +18,7 @@
 
 - [x] Response management — templates, compliance rules, draft version history, approval policies, publish targets/retry, idempotent transitions, performance metrics
 - [x] Response Center live dashboard + realtime notification on publish
-- [ ] Super Admin: create a new workspace, invite members, test a review (needs multi-workspace switching)
+- [x] Super Admin: create workspace + invite (verified)
 - [x] Response Center activity feed filters (status, platform, date, location)
 - [ ] Mobile push notifications on draft/submit/approve/publish (needs Firebase connection)
 
@@ -26,8 +26,8 @@
 - [x] Live test: publish failure + retry (60-char Google limit → Failed banner + Retry → Published after restore), and second-approval rule (Super Admin first approval recorded + pill; same-approver retry blocked with real error; Riya's second approval → Published; review marked Replied). Fix: priority-specific approval policies now outrank generic ones (RPC + client matcher); RPC errors surface their real message in the UI.
 - [ ] Real mobile notifications on reply/publish/approve/draft-save — Firebase connection, test via new workspace + invite
 - [x] Workspace audit log: review create/update/delete, approval, publish history — visible to Super Admin
-- [ ] Super Admin: create new workspace, invite member, reply + publish a review inside it (needs workspace switching)
+- [x] Super Admin: two workspaces + invite + reply/publish isolated (verified)
 - [ ] Publish-fail + retry + error message end-to-end on Google, Trustpilot and Facebook
 - [x] Auto-assignment: new review auto-assigned by platform/location/rating rules (server-side) + escalations visible
 - [x] Dashboard panel: auto-assigned reviews by rule (platform/location/rating) + escalation counts
-- [ ] AI analysis works in every workspace + suggested reply
+- [x] AI analysis works in every workspace + complaint + suggested reply
