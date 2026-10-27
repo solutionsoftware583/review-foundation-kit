@@ -1790,19 +1790,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
       .order("created_at", { ascending: false })
       .limit(20);
     setInsights(
-      (data ?? []).map((row) => ({
-        id: row.id,
-        review_id: row.review_id,
-        source_text: row.source_text,
-        headline: row.headline,
-        sentiment: row.sentiment,
-        severity: row.severity,
-        themes: (row.themes ?? []) as string[],
-        root_causes: (row.root_causes ?? []) as RootCause[],
-        recommendations: (row.recommendations ?? []) as Recommendation[],
-        created_by: row.created_by,
-        created_at: row.created_at,
-      })),
+      (data ?? []).map((row) => mapInsight(row as Parameters<typeof mapInsight>[0])),
     );
     setLoading(false);
   }, []);
