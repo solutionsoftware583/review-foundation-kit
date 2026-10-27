@@ -1723,7 +1723,7 @@ function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role;
   const run = async () => {
     setError(null); setBusy(true);
     try {
-      await analyzeReviewText({ data: { text: review.text, reviewId: review.id } });
+      await analyzeReviewText({ data: { text: review.text, reviewId: review.id, workspaceSlug: workspaceSlug() } });
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The analysis could not be completed.");
@@ -1804,7 +1804,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
     setError(null);
     setBusy(true);
     try {
-      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null } });
+      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null, workspaceSlug: workspaceSlug() } });
       setText("");
       setLinkedId("");
       await load();
