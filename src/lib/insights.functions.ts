@@ -2,16 +2,18 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const WORKSPACE = "northstar-group";
 const MODEL = "openai/gpt-6-astra";
 
 const inputSchema = z.object({
   text: z.string().trim().min(20, "Add at least 20 characters of review text.").max(6000),
   reviewId: z.string().uuid().nullable().optional(),
+  workspaceSlug: z.string().trim().min(2).max(80).regex(/^[a-z0-9-]+$/),
 });
 
 const analysisSchema = z.object({
   headline: z.string().min(1),
+  complaint: z.string().default(""),
+  suggested_reply: z.string().default(""),
   sentiment: z.enum(["Positive", "Mixed", "Negative"]),
   severity: z.enum(["Low", "Medium", "High", "Critical"]),
   themes: z.array(z.string()).max(6).default([]),
@@ -35,7 +37,7 @@ const analysisSchema = z.object({
 
 export type ReviewAnalysis = z.infer<typeof analysisSchema>;
 
-const SYSTEM_PROMPT = `You are a service-operations analyst for a multi-location hospitality and retail group.
+const SYSTEM_PROMPT = `You are a service-operations analyst for multi-location businesses (hospitality, retail, services).
 Given raw customer review text, identify the underlying operational root causes and recommend concrete, internal service improvements.
 Be specific and grounded in the text. Never invent facts that are not implied. Never suggest contacting external review platforms or APIs.
 Owners must be internal roles such as Store Manager, Shift Lead, Training Lead, Operations Manager or Customer Care Lead.
@@ -51,7 +53,7 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
       .from("reviewvala_members")
       .select("role, status, email, full_name, workspace_slug")
       .eq("user_id", userId)
-      .eq("workspace_slug", WORKSPACE)
+      .eq("workspace_slug", data.workspaceSlug)
       .maybeSingle();
 
     if (membership.error) throw new Error("Workspace access could not be verified.");
@@ -67,7 +69,7 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
         .from("reviewvala_reviews")
         .select("id")
         .eq("id", data.reviewId)
-        .eq("workspace_slug", WORKSPACE)
+        .eq("workspace_slug", data.workspaceSlug)
         .maybeSingle();
       if (owned.error || !owned.data) throw new Error("That review is not part of your workspace.");
       reviewId = owned.data.id;
@@ -94,7 +96,7 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
             content: [
               {
                 type: "input_text",
-                text: `Analyse this customer review. headline is one sentence. themes: up to 4 short labels. root_causes: up to 4 items with cause, evidence quoted or paraphrased from the review, and confidence. recommendations: up to 4 items with action, internal owner role, effort, impact and a timeframe such as "This week".\n\nREVIEW TEXT:\n${data.text}`,
+                text: `Analyse this customer review. headline is one sentence. complaint: the customer's main complaint in one short sentence, or "No complaint" if the review is purely positive. suggested_reply: a warm, specific public reply of 2-4 sentences addressed to the reviewer, acknowledging what they said, never promising refunds or discounts, under 600 characters. themes: up to 4 short labels. root_causes: up to 4 items with cause, evidence quoted or paraphrased from the review, and confidence. recommendations: up to 4 items with action, internal owner role, effort, impact and a timeframe such as "This week".\n\nREVIEW TEXT:\n${data.text}`,
               },
             ],
           },
@@ -107,9 +109,11 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
             schema: {
               type: "object",
               additionalProperties: false,
-              required: ["headline", "sentiment", "severity", "themes", "root_causes", "recommendations"],
+              required: ["headline", "complaint", "suggested_reply", "sentiment", "severity", "themes", "root_causes", "recommendations"],
               properties: {
                 headline: { type: "string" },
+                complaint: { type: "string" },
+                suggested_reply: { type: "string" },
                 sentiment: { type: "string", enum: ["Positive", "Mixed", "Negative"] },
                 severity: { type: "string", enum: ["Low", "Medium", "High", "Critical"] },
                 themes: { type: "array", items: { type: "string" } },
@@ -194,10 +198,12 @@ export const analyzeReviewText = createServerFn({ method: "POST" })
     const { data: saved, error } = await supabase
       .from("reviewvala_insights")
       .insert({
-        workspace_slug: WORKSPACE,
+        workspace_slug: data.workspaceSlug,
         review_id: reviewId,
         source_text: data.text,
         headline: parsed.headline,
+        complaint: parsed.complaint,
+        suggested_reply: parsed.suggested_reply,
         sentiment: parsed.sentiment,
         severity: parsed.severity,
         themes: parsed.themes,

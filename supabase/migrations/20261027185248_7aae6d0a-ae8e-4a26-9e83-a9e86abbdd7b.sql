@@ -1,0 +1,2 @@
+ALTER TABLE public.reviewvala_insights ADD COLUMN IF NOT EXISTS complaint text NOT NULL DEFAULT '';
+ALTER TABLE public.reviewvala_insights ADD COLUMN IF NOT EXISTS suggested_reply text NOT NULL DEFAULT '';

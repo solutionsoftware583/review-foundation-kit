@@ -1674,6 +1674,8 @@ type InsightRecord = {
   review_id: string | null;
   source_text: string;
   headline: string;
+  complaint: string;
+  suggested_reply: string;
   sentiment: string;
   severity: string;
   themes: string[];
@@ -1690,9 +1692,11 @@ function severityTone(severity: string): "good" | "warn" | "bad" | "brand" {
 function mapInsight(row: {
   id: string; review_id: string | null; source_text: string; headline: string; sentiment: string; severity: string;
   themes: unknown; root_causes: unknown; recommendations: unknown; created_by: string; created_at: string;
+  complaint?: string | null; suggested_reply?: string | null;
 }): InsightRecord {
   return {
     id: row.id, review_id: row.review_id, source_text: row.source_text, headline: row.headline,
+    complaint: row.complaint ?? "", suggested_reply: row.suggested_reply ?? "",
     sentiment: row.sentiment, severity: row.severity,
     themes: (row.themes ?? []) as string[],
     root_causes: (row.root_causes ?? []) as RootCause[],
@@ -1723,7 +1727,7 @@ function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role;
   const run = async () => {
     setError(null); setBusy(true);
     try {
-      await analyzeReviewText({ data: { text: review.text, reviewId: review.id } });
+      await analyzeReviewText({ data: { text: review.text, reviewId: review.id, workspaceSlug: workspaceSlug() } });
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The analysis could not be completed.");
@@ -1747,6 +1751,11 @@ function ReviewInsightPanel({ review, role, can }: { review: Review; role: Role;
         <p className="min-w-0 text-sm font-semibold leading-6">{insight.headline}</p>
         <span className="flex flex-wrap justify-end gap-2"><StatusPill tone={severityTone(insight.severity)}>{insight.severity} severity</StatusPill><StatusPill tone={insight.sentiment === "Positive" ? "good" : insight.sentiment === "Negative" ? "bad" : "warn"}>{insight.sentiment}</StatusPill></span>
       </div>
+      {insight.complaint && <p className="mt-3 text-xs"><span className="font-bold uppercase tracking-wider text-muted-foreground">Main complaint · </span>{insight.complaint}</p>}
+      {insight.suggested_reply && <div className="inset-3d mt-3 rounded-md p-3">
+        <div className="flex items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suggested reply</p><Button size="sm" variant="ghost" onClick={() => void navigator.clipboard?.writeText(insight.suggested_reply)}>Copy</Button></div>
+        <p className="mt-1 text-sm leading-6">{insight.suggested_reply}</p>
+      </div>}
       {!!insight.themes.length && <div className="mt-3 flex flex-wrap gap-2">{insight.themes.map((theme) => <span key={theme} className="rounded-full border border-border bg-surface px-3 py-1 text-[11px] font-semibold">{theme}</span>)}</div>}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
@@ -1781,19 +1790,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
       .order("created_at", { ascending: false })
       .limit(20);
     setInsights(
-      (data ?? []).map((row) => ({
-        id: row.id,
-        review_id: row.review_id,
-        source_text: row.source_text,
-        headline: row.headline,
-        sentiment: row.sentiment,
-        severity: row.severity,
-        themes: (row.themes ?? []) as string[],
-        root_causes: (row.root_causes ?? []) as RootCause[],
-        recommendations: (row.recommendations ?? []) as Recommendation[],
-        created_by: row.created_by,
-        created_at: row.created_at,
-      })),
+      (data ?? []).map((row) => mapInsight(row as Parameters<typeof mapInsight>[0])),
     );
     setLoading(false);
   }, []);
@@ -1804,7 +1801,7 @@ function ImprovePage({ reviews, role, can }: { reviews: Review[]; role: Role; ca
     setError(null);
     setBusy(true);
     try {
-      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null } });
+      await analyzeReviewText({ data: { text: text.trim(), reviewId: linkedId || null, workspaceSlug: workspaceSlug() } });
       setText("");
       setLinkedId("");
       await load();
