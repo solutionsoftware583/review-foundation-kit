@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -231,6 +231,7 @@ export type Database = {
       }
       reviewvala_insights: {
         Row: {
+          complaint: string
           created_at: string
           created_by: string
           headline: string
@@ -242,11 +243,13 @@ export type Database = {
           sentiment: string
           severity: string
           source_text: string
+          suggested_reply: string
           themes: Json
           updated_at: string
           workspace_slug: string
         }
         Insert: {
+          complaint?: string
           created_at?: string
           created_by?: string
           headline: string
@@ -258,11 +261,13 @@ export type Database = {
           sentiment?: string
           severity?: string
           source_text: string
+          suggested_reply?: string
           themes?: Json
           updated_at?: string
           workspace_slug?: string
         }
         Update: {
+          complaint?: string
           created_at?: string
           created_by?: string
           headline?: string
@@ -274,6 +279,7 @@ export type Database = {
           sentiment?: string
           severity?: string
           source_text?: string
+          suggested_reply?: string
           themes?: Json
           updated_at?: string
           workspace_slug?: string
